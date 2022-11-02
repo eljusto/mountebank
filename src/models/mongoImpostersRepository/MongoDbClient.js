@@ -47,10 +47,57 @@ class MongoDbClient {
         return this.client.close();
     }
 
-    addImposter (data) {
+    async addImposter (data) {
+        console.trace('CLIENT addImposter');
+
         return this.getDb()
             .collection('imposters')
             .insertOne(data);
+    }
+
+    async addRequest (imposterId, request) {
+        console.trace('CLIENT addRequest');
+        try {
+            await this.getDb()
+                .collection('imposter_requests')
+                .insertOne({
+                    imposterId,
+                    request,
+                });
+            return request;
+        } catch (e) {
+            console.error('CLIENT addRequest', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async getRequests (imposterId) {
+        console.trace('CLIENT getRequests');
+
+        try {
+            const res = await this
+                .getDb()
+                .collection('imposter_requests')
+                .find({ imposterId })
+                .toArray();
+            console.log(res);
+            return res;
+        } catch (e) {
+            console.error('CLIENT getRequests', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async deleteRequests (imposterId) {
+        console.trace('CLIENT deleteRequests');
+
+        const res = await this.getDb()
+            .collection('imposter_requests')
+            .deleteMany({ imposterId });
+
+        console.log(res);
+
+        return res;
     }
 
     async getAllImposters (transformFn) {
