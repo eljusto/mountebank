@@ -2,79 +2,88 @@
 
 const wrap = require('./wrap');
 
-function stubRepository (imposterId, dbClient) {
-    // const imposterFile = `${baseDir}/imposter.json`;
-    //
-    // function metaPath (stubDir) {
-    //     return `${baseDir}/${stubDir}/meta.json`;
-    // }
-    //
-    // function responsePath (stubDir, responseFile) {
-    //     return `${baseDir}/${stubDir}/${responseFile}`;
-    // }
-    //
-    // function requestPath (request) {
-    //     return `${baseDir}/requests/${filenameFor(Date.parse(request.timestamp))}.json`;
-    // }
-    //
-    // function matchPath (stubDir, match) {
-    //     return `${baseDir}/${stubDir}/matches/${filenameFor(Date.parse(match.timestamp))}.json`;
-    // }
-    //
-    // function readHeader () {
-    //     return readFile(imposterFile, { stubs: [] });
-    // }
-    //
-    // function readAndWriteHeader (caller, transformer) {
-    //     return readAndWriteFile(imposterFile, caller, transformer, { stubs: [] });
-    // }
+function setStubs (imposter, stubs) {
+    return {
+        ...imposter,
+        stubs,
+        creationRequest: {
+            ...imposter.creationRequest,
+            stubs
+        }
+    };
+}
 
+function stubRepository (imposterId, dbClient) {
 
     /**
      * Returns the number of stubs for the imposter
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @returns {Object} - the promise
      */
     async function count () {
-        console.trace('STUB count NOT_IMPLEMENTED_YET');
-
         const imposter = await dbClient.getImposter(imposterId);
         if (!imposter) {
             return 0;
         }
+        if (!Array.isArray(imposter.stubs)) {
+            imposter.stubs = [];
+        }
 
-        return imposter.creationRequest.stubs.length;
+        console.warn('COUNT ', JSON.stringify(imposter.stubs));
+
+        return imposter.stubs.length;
     }
 
     /**
      * Returns the first stub whose predicates matches the filter
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @param {Function} filter - the filter function
      * @param {Number} startIndex - the index to to start searching
      * @returns {Object} - the promise
      */
     async function first (filter, startIndex = 0) {
-        console.trace('STUB first, NOT_IMPLEMENTED_YET', filter, startIndex);
+        console.trace('STUB:first', filter.toString(), startIndex, imposterId);
+
         const imposter = await dbClient.getImposter(imposterId);
+        console.log('imposter', imposter);
         if (imposter) {
-            console.log(imposter);
-            for (let i = startIndex; i < imposter.creationRequest.stubs.length; i += 1) {
-                if (filter(imposter.creationRequest.stubs[i].predicates || [])) {
-                    return { success: true, stub: wrap(imposter.creationRequest.stubs[i]) };
+            if (!Array.isArray(imposter.stubs)) {
+                imposter.stubs = [];
+            }
+            for (let i = startIndex; i < imposter.stubs.length; i += 1) {
+                if (filter(imposter.stubs[i].predicates || [])) {
+                    console.log('STUB FIRST FILTER TRUE', JSON.stringify(imposter.stubs[i].predicates));
+                    return { success: true, stub: wrap(imposter.stubs[i]) };
                 }
             }
         }
+        console.log('STUB FIRST SUCCESS FALSE');
         return { success: false, stub: wrap() };
     }
 
     /**
      * Adds a new stub to imposter
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @param {Object} stub - the stub to add
      * @returns {Object} - the promise
      */
     async function add (stub) { // eslint-disable-line no-shadow
-        console.trace('STUB add. NOT_IMPLEMENTED_YET', stub);
+        console.trace('STUB add', stub);
+
+        const imposter = await dbClient.getImposter(imposterId);
+        if (!imposter) {
+            return;
+        }
+
+        if (!Array.isArray(imposter.stubs)) {
+            imposter.stubs = [];
+        }
+
+        const updatedImposter = setStubs(imposter, [...imposter.stubs, wrap(stub)]);
+        const resUpdate = await dbClient.updateImposter(updatedImposter);
+        console.log('resUpdate', resUpdate);
+        return resUpdate;
+
         // const stubDefinition = await saveStubMetaAndResponses(stub, baseDir);
         //
         // await readAndWriteHeader('addStub', async header => {
@@ -91,8 +100,25 @@ function stubRepository (imposterId, dbClient) {
      * @returns {Object} - the promise
      */
     async function insertAtIndex (stub, index) {
-        console.trace('STUB insert, NOT_IMPLEMENTED_YET', stub, index);
-        return Promise.reject();
+        console.trace('STUB insertAtIndex', stub, index);
+
+        const imposter = await dbClient.getImposter(imposterId);
+        if (!imposter) {
+            return;
+        }
+
+        if (!Array.isArray(imposter.stubs)) {
+            imposter.stubs = [];
+        }
+
+        imposter.stubs.splice(index, 0, wrap(stub));
+
+        const updatedImposter = setStubs(imposter, imposter.stubs);
+        const resUpdate = await dbClient.updateImposter(updatedImposter);
+        console.log('resUpdate', resUpdate);
+        return resUpdate;
+
+        // return Promise.reject('STUB_INSERT NOT_IMPLEMENTED_YET');
         // const stubDefinition = await saveStubMetaAndResponses(stub, baseDir);
         //
         // await readAndWriteHeader('insertStubAtIndex', async header => {
@@ -108,8 +134,20 @@ function stubRepository (imposterId, dbClient) {
      * @returns {Object} - the promise
      */
     async function deleteAtIndex (index) {
-        console.trace('STUB delete, NOT_IMPLEMENTED_YET', index);
-        return Promise.reject();
+        console.trace('STUB delete', index);
+
+        const imposter = await dbClient.getImposter(imposterId);
+        if (!imposter) {
+            return;
+        }
+
+        if (!Array.isArray(imposter.stubs)) {
+            imposter.stubs = [];
+        }
+
+        imposter.stubs.splice(index, 1);
+        const updatedImposter = setStubs(imposter, imposter.stubs);
+        return await dbClient.updateImposter(updatedImposter);
         // let stubDir;
         //
         // await readAndWriteHeader('deleteStubAtIndex', async header => {
@@ -134,8 +172,17 @@ function stubRepository (imposterId, dbClient) {
      * @returns {Object} - the promise
      */
     async function overwriteAll (newStubs) {
-        console.trace('STUB overwriteAll. NOT_IMPLEMENTED_YET', newStubs);
-        return Promise.reject();
+        console.trace('STUB overwriteAll', newStubs);
+
+        const imposter = await dbClient.getImposter(imposterId);
+        if (!imposter) {
+            return;
+        }
+
+        imposter.stubs = newStubs;
+
+        const updatedImposter = setStubs(imposter, imposter.stubs);
+        return await dbClient.updateImposter(updatedImposter);
         // await readAndWriteHeader('overwriteAllStubs', async header => {
         //     header.stubs = [];
         //     await remove(`${baseDir}/stubs`);
@@ -158,6 +205,7 @@ function stubRepository (imposterId, dbClient) {
      */
     async function overwriteAtIndex (stub, index) {
         console.trace('STUB overwriteAtIndex. NOT_IMPLEMENTED_YET', stub, index);
+
         await deleteAtIndex(index);
         await insertAtIndex(stub, index);
     }
@@ -171,7 +219,7 @@ function stubRepository (imposterId, dbClient) {
 
     async function loadMatches (stub) {
         console.trace('STUB loadMatches. NOT_IMPLEMENTED_YET', stub);
-        // return loadAllInDir(`${baseDir}/${stub.meta.dir}/matches`);
+        return stub.matches || [];
     }
 
     /**
@@ -182,7 +230,35 @@ function stubRepository (imposterId, dbClient) {
      * @returns {Object} - the promise resolving to the JSON object
      */
     async function toJSON (options = {}) {
-        console.trace('STUB toJSON. NOT_IMPLEMENTED_YET', options);
+        console.trace('STUB toJSON', options);
+
+        const imposter = await dbClient.getImposter(imposterId);
+        if (!imposter) {
+            if (options.debug) {
+                console.log('Can\'t find imposter with id ', imposterId);
+            }
+            return Promise.response({});
+        }
+
+        if (!Array.isArray(imposter.stubs)) {
+            imposter.stubs = [];
+        }
+
+        const responsePromises = imposter.stubs.map(loadResponses);
+        const stubResponses = await Promise.all(responsePromises);
+        const debugPromises = options.debug ? imposter.stubs.map(loadMatches) : [];
+        const matches = await Promise.all(debugPromises);
+
+        console.log('matches:', matches);
+        imposter.stubs.forEach((stub, index) => {
+            stub.responses = stubResponses[index];
+            if (options.debug && matches[index].length > 0) {
+                stub.matches = matches[index];
+            }
+        });
+
+        console.log('STUBS: ', imposter.stubs);
+        return imposter.stubs;
 
         // const header = await readHeader(),
         //     responsePromises = header.stubs.map(loadResponses),
@@ -224,40 +300,39 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Adds a request for the imposter
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @param {Object} request - the request
      * @returns {Object} - the promise
      */
     async function addRequest (request) {
-        console.trace('STUB addRequest. NOT_IMPLEMENTED_YET', request);
-        return Promise.reject();
-        // const helpers = require('../util/helpers'),
-        //     recordedRequest = helpers.clone(request);
-        //
-        // recordedRequest.timestamp = new Date().toJSON();
-        // await writeFile(requestPath(recordedRequest), recordedRequest);
+        console.trace('STUB addRequest', request);
+
+        const helpers = require('../../util/helpers');
+        const recordedRequest = helpers.clone(request);
+        recordedRequest.timestamp = new Date().toJSON();
+        return dbClient.addRequest(imposterId, recordedRequest);
     }
 
     /**
      * Returns the saved requests for the imposter
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @returns {Object} - the promise resolving to the array of requests
      */
     async function loadRequests () {
-        console.trace('STUB loadRequests. NOT_IMPLEMENTED_YET');
-        return Promise.reject();
-        // return loadAllInDir(`${baseDir}/requests`);
+        console.trace('STUB loadRequests');
+
+        return dbClient.getRequests(imposterId);
     }
 
     /**
      * Deletes the requests directory for an imposter
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @returns {Object} - Promise
      */
     async function deleteSavedRequests () {
-        console.trace('STUB deleteSavedRequests. NOT_IMPLEMENTED_YET');
-        return Promise.reject();
-        // await remove(`${baseDir}g/requests`);
+        console.trace('STUB deleteSavedRequests');
+
+        return dbClient.deleteRequests(imposterId);
     }
 
     return {

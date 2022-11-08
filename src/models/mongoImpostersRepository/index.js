@@ -1,81 +1,146 @@
-/* eslint-disable */
+'use strict';
 
-const MongoDbClient = require('./MongoDbClient');
+const RedisClient = require('./RedisClient');
 
 const stubRepository = require('./stubRepository');
 
-function wrapImposter(imposter, index = 0) {
+function wrapImposter (imposter, index = 0) {
     console.trace('MODEL: wrapImposter', imposter);
     const toJSON = () => {
         console.warn('object ToJSON', index);
-        try {
-            return JSON.stringify(imposter);
-        } catch (e) {
-            return '{"error":"cant stringify imposter"}';
-        }
+        return imposter.creationRequest;
+    };
+
+    if (!Array.isArray(imposter.creationRequest.stubs)) {
+        imposter.creationRequest.stubs = [];
     }
+
     return {
         ...imposter.creationRequest,
-        toJSON,
+        toJSON
     };
-};
-function create(config, logger) {
+}
+
+function create (config, logger) {
     console.warn('!! REPO create', config);
 
-    const dbClient = new MongoDbClient();
+    const imposterFns = {};
+
+    const dbClient = new RedisClient();
+
+    /**
+     * Saves a reference to the imposter so that the functions
+     * (which can't be persisted) can be rehydrated to a loaded imposter.
+     * This means that any data in the function closures will be held in
+     * memory.
+     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @param {Object} imposter - the imposter
+     */
+    function addReference (imposter) {
+        console.trace('imposter');
+        const id = String(imposter.port);
+        imposterFns[id] = {};
+        Object.keys(imposter).forEach(key => {
+            if (typeof imposter[key] === 'function') {
+                imposterFns[id][key] = imposter[key];
+            }
+        });
+    }
 
     async function add (imposter) {
         console.trace('MODEL:Add', imposter);
         try {
-            return dbClient.addImposter(imposter);
-        } catch (e) {
+            if (await this.exists(imposter.port)) {
+                await this.del(imposter.port);
+            }
+            const savedImposter = await dbClient.addImposter(imposter);
+            addReference(imposter);
+            console.log('return savedImposter', savedImposter);
+            return savedImposter;
+        }
+        catch (e) {
             console.error('ADD_STUB_ERROR', e);
             return null;
         }
     }
 
-    async function get(id) {
+    async function get (id) {
         console.trace('MODEL:Get', id);
         try {
             const item = await dbClient.getImposter(id);
-            console.log('!! RES', item);
+            if (!item) {
+                console.log('return null');
+                return null;
+            }
+            console.log('return item', item);
             return wrapImposter(item);
-        } catch (e) {
+        }
+        catch (e) {
             console.error('GET_STUB_ERROR', e);
             return Promise.reject(e);
         }
     }
 
-    async function all() {
+    async function all () {
         console.trace('MODEL:All');
-        return dbClient.getAllImposters(wrapImposter);
+        if (dbClient.isClosed()) {
+            return [];
+        }
+        return await dbClient.getAllImposters(wrapImposter);
     }
 
-    async function exists(id) {
+    async function exists (id) {
         console.trace('MODEL:Exists', id);
         try {
             const item = await dbClient.getImposter(id);
             return (item !== null);
-        } catch (e) {
+        }
+        catch (e) {
             console.error('EXISTS_STUB_ERROR', e);
             return Promise.reject(e);
         }
     }
 
-    async function del(id) {
+    async function shutdown (id) {
+        if (typeof imposterFns[String(id)] === 'undefined') {
+            return;
+        }
+
+        const stop = imposterFns[String(id)].stop;
+        delete imposterFns[String(id)];
+        if (stop) {
+            await stop();
+        }
+    }
+
+    async function del (id) {
         console.trace('MODEL:Del', id);
+
         try {
-            const item = await dbClient.deleteImposter(id);
-            return (item !== null);
-        } catch (e) {
+            const imposter = await this.get(id);
+            if (!imposter) {
+                return null;
+            }
+            await shutdown(id);
+            await dbClient.deleteImposter(id);
+            return imposter;
+        }
+        catch (e) {
             console.error('DELETE_STUB_ERROR', e);
             return Promise.reject(e);
         }
     }
 
-    async function deleteAll() {
+    async function deleteAll () {
         console.trace('MODEL:DeleteAll');
-        return dbClient.deleteAllImposters();
+
+        const ids = Object.keys(imposterFns);
+        console.log('ids to stop: ', ids);
+        await Promise.all(Object.keys(imposterFns).map(shutdown));
+
+        const allImposters = await dbClient.getAllImposters(wrapImposter);
+        await dbClient.deleteAllImposters();
+        return allImposters;
     }
 
     /**
@@ -84,19 +149,22 @@ function create(config, logger) {
      * @memberOf module:models/inMemoryImpostersRepository#
      * @returns {Object} - a promise
      */
-    async function loadAll(protocols) {
+    async function loadAll (protocols) {
         console.trace('MODEL:LoadAll');
-        return dbClient.connectToServer((err) => {
+        return dbClient.connectToServer(err => {
             console.warn('Connection done.', err ? err : 'No errors');
 
-            dbClient.getAllImposters(wrapImposter).then((imposters) => {
+            dbClient.getAllImposters(wrapImposter).then(imposters => {
                 imposters.forEach(imposter => {
                     console.log(imposter);
                     const protocol = protocols[imposter.protocol];
                     if (protocol) {
                         logger.info(`Loading ${imposter.protocol} ${ imposter.port }`);
-                        protocol.createImposterFrom(imposter);
-                    } else {
+                        protocol.createImposterFrom(imposter).then(imposterInstance => {
+                            addReference(imposterInstance);
+                        });
+                    }
+                    else {
                         logger.error(`Cannot load imposter ${ imposter.port }; no protocol loaded for ${ imposter.protocol }`);
                     }
                 });
@@ -104,14 +172,25 @@ function create(config, logger) {
         });
     }
 
-    function stopAllSync() {
+    async function stopAll () {
+        console.trace('MODEL:stopAll');
+
+        await Promise.all(Object.keys(imposterFns).map(shutdown));
+
         // FIXME need to make it synchronic
-        console.trace('MODEL:stopAllSync');
-        dbClient.stop();
-        return;
+        return await dbClient.stop();
     }
 
-    function stubsFor(id) {
+    async function stopAllSync () {
+        console.trace('MODEL:stopAllSync');
+
+        await Promise.all(Object.keys(imposterFns).map(shutdown));
+
+        // FIXME need to make it synchronic
+        return await dbClient.stop();
+    }
+
+    function stubsFor (id) {
         console.trace('MODEL: StubsFor', id);
         return stubRepository(id, dbClient);
         // return { id };
@@ -125,6 +204,7 @@ function create(config, logger) {
         exists,
         get,
         loadAll,
+        stopAll,
         stopAllSync,
         stubsFor
     };
