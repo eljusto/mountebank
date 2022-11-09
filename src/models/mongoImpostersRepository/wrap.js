@@ -69,12 +69,11 @@ function wrap (stub, imposterId, dbClient) {
     };
 
     async function getStubIndex () {
-        console.trace('WRAP: stubIndex. NOT_IMPLEMENTED_YET');
-        const imposter = await dbClient.getImposter(imposterId);
+        console.trace('WRAP: getStubIndex');
 
-        // const header = await readHeader();
+        const imposter = await dbClient.getImposter(imposterId);
         for (let i = 0; i < imposter.stubs.length; i += 1) {
-            if (imposter.stubs[i].id === stub.id) {
+            if (imposter.stubs[i].meta.id === stub.meta.id) {
                 return i;
             }
         }

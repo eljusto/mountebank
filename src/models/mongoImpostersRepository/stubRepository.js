@@ -282,22 +282,6 @@ function stubRepository (imposterId, dbClient) {
 
         console.log('STUBS: ', imposter.stubs);
         return imposter.stubs;
-
-        // const header = await readHeader(),
-        //     responsePromises = header.stubs.map(loadResponses),
-        //     stubResponses = await Promise.all(responsePromises),
-        //     debugPromises = options.debug ? header.stubs.map(loadMatches) : [],
-        //     matches = await Promise.all(debugPromises);
-        //
-        // header.stubs.forEach((stub, index) => {
-        //     stub.responses = stubResponses[index];
-        //     if (options.debug && matches[index].length > 0) {
-        //         stub.matches = matches[index];
-        //     }
-        //     delete stub.meta;
-        // });
-        //
-        // return header.stubs;
     }
 
     function isRecordedResponse (response) {

@@ -77,13 +77,14 @@ function create (config, logger) {
     async function get (id) {
         console.trace('MODEL:Get', id);
         try {
-            const item = await dbClient.getImposter(id);
-            if (!item) {
+            const imposter = await dbClient.getImposter(id);
+            if (!imposter) {
                 console.log('return null');
                 return null;
             }
-            console.log('return item', item);
-            return wrapImposter(item);
+            console.log('return item', imposter);
+            imposter.stubs = await stubsFor(id).toJSON();
+            return wrapImposter(imposter);
         }
         catch (e) {
             console.error('GET_STUB_ERROR', e);
@@ -96,7 +97,12 @@ function create (config, logger) {
         if (dbClient.isClosed()) {
             return [];
         }
-        return await dbClient.getAllImposters(wrapImposter);
+        const imposters = await dbClient.getAllImposters(wrapImposter);
+        for (let i = 0; i < imposters.length; i += 1) {
+            imposters[i].stubs = await stubsFor(imposters[i].port).toJSON();
+            imposters[i] = wrapImposter(imposters[i]);
+        }
+        return imposters;
     }
 
     async function exists (id) {
