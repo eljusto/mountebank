@@ -8,15 +8,15 @@ function wrapImposter (imposter, index = 0) {
     console.trace('MODEL: wrapImposter', imposter);
     const toJSON = () => {
         console.warn('object ToJSON', index);
-        return imposter.creationRequest;
+        return imposter;
     };
 
-    if (!Array.isArray(imposter.creationRequest.stubs)) {
-        imposter.creationRequest.stubs = [];
-    }
+    // if (!Array.isArray(imposter.creationRequest.stubs)) {
+    //     imposter.creationRequest.stubs = [];
+    // }
 
     return {
-        ...imposter.creationRequest,
+        ...imposter,
         toJSON
     };
 }
@@ -53,10 +53,20 @@ function create (config, logger) {
             if (await this.exists(imposter.port)) {
                 await this.del(imposter.port);
             }
-            const savedImposter = await dbClient.addImposter(imposter);
+
+            const imposterConfig = imposter.creationRequest;
+            const stubs = imposterConfig.stubs || [];
+
+            delete imposterConfig.requests;
+            imposterConfig.port = imposter.port;
+
+            const savedImposter = await dbClient.addImposter(imposterConfig);
             addReference(imposter);
+
+            const repo = stubsFor(imposter.port, dbClient);
+            await repo.overwriteAll(stubs);
             console.log('return savedImposter', savedImposter);
-            return savedImposter;
+            return imposter;
         }
         catch (e) {
             console.error('ADD_STUB_ERROR', e);

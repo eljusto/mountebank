@@ -1,39 +1,21 @@
 'use strict';
 // Wrap from inMemory
 
+// meta = {
+//     responseFiles: [],
+//     orderWithRepeats: [],
+//     nextIndex: 0
+// },
+
 function repeatsFor (response) {
     return response.repeat || 1;
 }
 
-function repeatTransform (responses) {
-    const result = [];
-    let response, repeats;
-
-    for (let i = 0; i < responses.length; i += 1) {
-        response = responses[i];
-        repeats = repeatsFor(response);
-        for (let j = 0; j < repeats; j += 1) {
-            result.push(response);
-        }
-    }
-    return result;
-}
-
-function createResponse (responseConfig) {
+function wrap (stub, imposterId, dbClient) {
+    console.trace('WRAP wrap', stub);
     const helpers = require('../../util/helpers');
-    console.trace('WRAP Create response. NOT_IMPLEMENTED_YET', responseConfig);
-    // FIXME: add index function
-    const result = helpers.clone(responseConfig || { is: {} });
-    result.stubIndex = stubIndex => stubIndex;
-    return result;
-}
-
-function wrap (stub) {
-    console.trace('WRAP wrap. NOT_IMPLEMENTED_YET', stub);
-    const helpers = require('../../util/helpers'),
-        cloned = helpers.clone(stub || {});
-    // stubDir = stub e stub.meta.dir : '';
-    // FIXME: support for repeated responses statefulResponses = repeatTransform(cloned.responses || []);
+    const cloned = helpers.clone(stub || {});
+    const stubId = stub ? stub.meta.id : '-';
 
     if (typeof stub === 'undefined') {
         return {
@@ -48,6 +30,22 @@ function wrap (stub) {
 
     delete cloned.meta;
 
+    let counter = 0;
+
+    function generateId (prefix) {
+        const epoch = new Date().valueOf();
+        counter += 1;
+        return `${prefix}-${epoch}-${process.pid}-${counter}`;
+    }
+
+    function createResponse (responseConfig) {
+        console.trace('WRAP Create response', responseConfig);
+        const result = helpers.clone(responseConfig || { is: {} });
+        result.stubIndex = getStubIndex;
+
+        return result;
+    }
+
     /**
      * Adds a response to the stub
      * @memberOf module:models/filesystemBackedImpostersRepository#
@@ -56,62 +54,64 @@ function wrap (stub) {
      */
     cloned.addResponse = async response => {
         console.trace('WRAP: add response');
-        // FIXME: implement saving to DB
-        cloned.responses = cloned.responses || [];
-        cloned.responses.push(response);
-        // FIXME: statefulResponses.push(response);
-        return response;
+
+        const responseId = generateId('response');
+        const meta = await dbClient.getMeta(imposterId, stubId);
+        const responseIndex = meta.responseIds.length;
+        meta.responseIds.push(responseId);
+        for (let repeats = 0; repeats < repeatsFor(response); repeats += 1) {
+            meta.orderWithRepeats.push(responseIndex);
+        }
+        await dbClient.setMeta(imposterId, stubId, meta);
+        console.log('RESPONSE', JSON.stringify(response));
+        await dbClient.addResponse(responseId, response);
+        return meta;
     };
 
-    async function stubIndex () {
+    async function getStubIndex () {
         console.trace('WRAP: stubIndex. NOT_IMPLEMENTED_YET');
+        const imposter = await dbClient.getImposter(imposterId);
+
         // const header = await readHeader();
-        // for (let i = 0; i < header.stubs.length; i += 1) {
-        //     if (header.stubs[i].meta.dir === stubDir) {
-        //         return i;
-        //     }
-        // }
+        for (let i = 0; i < imposter.stubs.length; i += 1) {
+            if (imposter.stubs[i].id === stub.id) {
+                return i;
+            }
+        }
         return 0;
     }
 
     /**
      * Returns the next response for the stub, taking into consideration repeat behavior and cycling back the beginning
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @returns {Object} - the promise
      */
     cloned.nextResponse = async () => {
-        console.trace('WRAP Next response. NOT_IMPLEMENTED_YET');
-        // let responseFile;
-        // await readAndWriteFile(metaPath(stubDir), 'nextResponse', async meta => {
-        //     const maxIndex = meta.orderWithRepeats.length,
-        //         responseIndex = meta.orderWithRepeats[meta.nextIndex % maxIndex];
-        //
-        //     responseFile = meta.responseFiles[responseIndex];
-        //
-        //     meta.nextIndex = (meta.nextIndex + 1) % maxIndex;
-        //     return meta;
-        // });
+        console.trace('WRAP nextResponse', stub);
+        let responseId;
+        const meta = await dbClient.getMeta(imposterId, stubId);
+        const maxIndex = meta.orderWithRepeats.length;
+        const responseIndex = meta.orderWithRepeats[meta.nextIndex % maxIndex];
 
-        // No need to read the response file while the lock is held
-        // const responseConfig = await readFile(responsePath(stubDir, responseFile));
+        responseId = meta.responseIds[responseIndex];
+        meta.nextIndex = (meta.nextIndex + 1) % maxIndex;
 
-        // FIXME
-        // const responseConfig = statefulResponses.shift();
-        //
-        // if (responseConfig) {
-        //     statefulResponses.push(responseConfig);
-        //     return createResponse(responseConfig, cloned.stubIndex);
-        // }
-        // else {
-        //     return createResponse();
-        // }
-        const responseConfig = null;
-        return createResponse(responseConfig);
+        await dbClient.setMeta(imposterId, stubId, meta);
+
+        const responseConfig = await dbClient.getResponse(responseId);
+        console.log('responseConfig=', responseConfig);
+
+        if (responseConfig) {
+            return createResponse(responseConfig);
+        }
+        else {
+            return createResponse();
+        }
     };
 
     /**
      * Records a match for debugging purposes
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/mongoBackedImpostersRepository#
      * @param {Object} request - the request
      * @param {Object} response - the response
      * @param {Object} responseConfig - the config that generated the response
@@ -120,15 +120,23 @@ function wrap (stub) {
      */
     cloned.recordMatch = async (request, response, responseConfig, processingTime) => {
         console.trace('WRAP: Record match');
-        cloned.matches = cloned.matches || [];
-        cloned.matches.push({
+
+        if (!Array.isArray(cloned.matches)) {
+            cloned.matches = [];
+        }
+
+        const match = {
             timestamp: new Date().toJSON(),
             request,
             response,
             responseConfig,
             processingTime
-        });
-        // FIXME: save to db
+        };
+
+        cloned.matches.push(match);
+
+        console.log(match);
+
     };
 
     return cloned;

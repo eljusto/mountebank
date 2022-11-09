@@ -6,22 +6,19 @@
 
 /* eslint max-nested-callbacks: 0 */
 
+const RedisClient = require('../../src/models/mongoImpostersRepository/RedisClient');
+const dbClient = new RedisClient();
+
 const assert = require('assert'),
-    fs = require('fs-extra'),
-    Logger = require('../fakes/fakeLogger'),
     types = [
         {
             name: 'mongoImpostersRepository',
             create: require('../../src/models/mongoImpostersRepository/index').create,
             beforeEach: () => {},
-            afterEach: () => {}
+            afterEach: async () => {
+                await dbClient.flushDb();
+            }
         }
-        // {
-        //     name: 'filesystemBackedImpostersRepository',
-        //     create: () => require('../../src/models/filesystemBackedImpostersRepository').create({ datadir: '.mbtest' }, Logger.create()),
-        //     beforeEach: () => {},
-        //     afterEach: () => { fs.removeSync('.mbtest'); }
-        // }
     ],
     mock = require('../mock').mock;
 
@@ -141,7 +138,8 @@ types.forEach(function (type) {
                 ]);
             });
 
-            it.only('should return all added with stubs', async function () {
+            it('should return all added with stubs', async function () {
+                await repo.loadAll();
                 const first = {
                         port: 1,
                         stubs: [{
@@ -157,11 +155,17 @@ types.forEach(function (type) {
                         }]
                     };
 
-                await repo.add(imposterize(second));
                 await repo.add(imposterize(first));
+                await repo.add(imposterize(second));
 
                 const imposters = await repo.all();
-                assert.deepEqual(deimposterize(imposters), [first, second]);
+                const actualResult = deimposterize(imposters);
+
+                const actualFirst = actualResult.find(imp => imp.port === 1);
+                const actualSecond = actualResult.find(imp => imp.port === 2);
+
+                assert.deepEqual([actualFirst, actualSecond], [first, second]);
+                assert.ok(actualResult.length === 2);
             });
         });
 
@@ -245,17 +249,19 @@ types.forEach(function (type) {
             });
         });
 
+        // TODO Add test for imposters with functions
+        // const first = { port: 1, value: 2, /* stop: mock().returns(Promise },
+        //     second = { port: 2, value: 3, /* stop: mock().returns(Promise.resolve())  */};
+
         describe('#deleteAll', function () {
             it('should call stop() on all imposters and empty list', async function () {
-                const first = { port: 1, value: 2, /* stop: mock().returns(Promise.resolve()) */ },
-                    second = { port: 2, value: 3, /* stop: mock().returns(Promise.resolve())  */};
+                const first = { port: 1, value: 2 },
+                    second = { port: 2, value: 3 };
 
                 await repo.add(imposterize(first));
                 await repo.add(imposterize(second));
                 await repo.deleteAll();
 
-                // assert.ok(first.stop.wasCalled(), first.stop.message());
-                // assert.ok(second.stop.wasCalled(), second.stop.message());
                 const imposters = await repo.all();
                 assert.deepEqual(imposters, []);
             });

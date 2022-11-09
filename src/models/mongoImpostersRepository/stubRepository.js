@@ -13,8 +13,18 @@ function setStubs (imposter, stubs) {
     };
 }
 
-function stubRepository (imposterId, dbClient) {
+function repeatsFor (response) {
+    return response.repeat || 1;
+}
 
+function stubRepository (imposterId, dbClient) {
+    let counter = 0;
+
+    function generateId (prefix) {
+        const epoch = new Date().valueOf();
+        counter += 1;
+        return `${prefix}-${epoch}-${process.pid}-${counter}`;
+    }
     /**
      * Returns the number of stubs for the imposter
      * @memberOf module:models/mongoBackedImpostersRepository#
@@ -53,7 +63,7 @@ function stubRepository (imposterId, dbClient) {
             for (let i = startIndex; i < imposter.stubs.length; i += 1) {
                 if (filter(imposter.stubs[i].predicates || [])) {
                     console.log('STUB FIRST FILTER TRUE', JSON.stringify(imposter.stubs[i].predicates));
-                    return { success: true, stub: wrap(imposter.stubs[i]) };
+                    return { success: true, stub: wrap(imposter.stubs[i], imposterId, dbClient) };
                 }
             }
         }
@@ -75,21 +85,45 @@ function stubRepository (imposterId, dbClient) {
             return;
         }
 
+        const stubDefinition = await saveStubMetaAndResponses(stub);
+
+        console.log('STUB DEF', stubDefinition);
         if (!Array.isArray(imposter.stubs)) {
             imposter.stubs = [];
         }
 
-        const updatedImposter = setStubs(imposter, [...imposter.stubs, wrap(stub)]);
+        const updatedImposter = setStubs(imposter, [...imposter.stubs, stubDefinition]);
         const resUpdate = await dbClient.updateImposter(updatedImposter);
         console.log('resUpdate', resUpdate);
         return resUpdate;
+    }
 
-        // const stubDefinition = await saveStubMetaAndResponses(stub, baseDir);
-        //
-        // await readAndWriteHeader('addStub', async header => {
-        //     header.stubs.push(stubDefinition);
-        //     return header;
-        // });
+    async function saveStubMetaAndResponses (stub) {
+        const stubId = generateId('stub');
+        const stubDefinition = {
+            meta: { id: stubId },
+            };
+        const meta = {
+            responseIds: [],
+            orderWithRepeats: [],
+            nextIndex: 0
+        };
+        const responses = stub.responses || [];
+        if (stub.predicates) {
+            stubDefinition.predicates = stub.predicates;
+        }
+        for (let i = 0; i < responses.length; i += 1) {
+            const responseId = generateId('response');
+            meta.responseIds.push(responseId);
+
+            for (let repeats = 0; repeats < repeatsFor(responses[i]); repeats += 1) {
+                meta.orderWithRepeats.push(i);
+            }
+            await dbClient.addResponse(responseId, responses[i]);
+        }
+        await dbClient.setMeta(imposterId, stubId, meta);
+
+        return stubDefinition;
     }
 
     /**
@@ -107,24 +141,18 @@ function stubRepository (imposterId, dbClient) {
             return;
         }
 
+        const stubDefinition = await saveStubMetaAndResponses(stub);
+
         if (!Array.isArray(imposter.stubs)) {
             imposter.stubs = [];
         }
 
-        imposter.stubs.splice(index, 0, wrap(stub));
+        imposter.stubs.splice(index, 0, stubDefinition);
 
         const updatedImposter = setStubs(imposter, imposter.stubs);
         const resUpdate = await dbClient.updateImposter(updatedImposter);
         console.log('resUpdate', resUpdate);
         return resUpdate;
-
-        // return Promise.reject('STUB_INSERT NOT_IMPLEMENTED_YET');
-        // const stubDefinition = await saveStubMetaAndResponses(stub, baseDir);
-        //
-        // await readAndWriteHeader('insertStubAtIndex', async header => {
-        //     header.stubs.splice(index, 0, stubDefinition);
-        //     return header;
-        // });
     }
 
     /**
@@ -135,6 +163,7 @@ function stubRepository (imposterId, dbClient) {
      */
     async function deleteAtIndex (index) {
         console.trace('STUB delete', index);
+        const errors = require('../../util/errors');
 
         const imposter = await dbClient.getImposter(imposterId);
         if (!imposter) {
@@ -144,25 +173,14 @@ function stubRepository (imposterId, dbClient) {
         if (!Array.isArray(imposter.stubs)) {
             imposter.stubs = [];
         }
+        if (typeof imposter.stubs[index] === 'undefined') {
+            console.warn('no stub at index ', index, ' for imposter ', imposterId);
+            throw errors.MissingResourceError(`no stub at index ${index}`);
+        }
 
         imposter.stubs.splice(index, 1);
         const updatedImposter = setStubs(imposter, imposter.stubs);
         return await dbClient.updateImposter(updatedImposter);
-        // let stubDir;
-        //
-        // await readAndWriteHeader('deleteStubAtIndex', async header => {
-        //     const errors = require('../util/errors');
-        //
-        //     if (typeof header.stubs[index] === 'undefined') {
-        //         throw errors.MissingResourceError(`no stub at index ${index}`);
-        //     }
-        //
-        //     stubDir = header.stubs[index].meta.dir;
-        //     header.stubs.splice(index, 1);
-        //     return header;
-        // });
-        //
-        // await remove(`${baseDir}/${stubDir}`);
     }
 
     /**
@@ -179,21 +197,18 @@ function stubRepository (imposterId, dbClient) {
             return;
         }
 
-        imposter.stubs = newStubs;
+        imposter.stubs = [];
+        if (!imposter.creationRequest) {
+            imposter.creationRequest = {};
+        }
+        imposter.creationRequest.stubs = [];
+        await dbClient.updateImposter(imposter);
 
-        const updatedImposter = setStubs(imposter, imposter.stubs);
-        return await dbClient.updateImposter(updatedImposter);
-        // await readAndWriteHeader('overwriteAllStubs', async header => {
-        //     header.stubs = [];
-        //     await remove(`${baseDir}/stubs`);
-        //     return header;
-        // });
-        //
-        // let addSequence = Promise.resolve();
-        // newStubs.forEach(stub => {
-        //     addSequence = addSequence.then(() => add(stub));
-        // });
-        // await addSequence;
+        let addSequence = Promise.resolve();
+        newStubs.forEach(stub => {
+            addSequence = addSequence.then(() => add(stub));
+        });
+        return await addSequence;
     }
 
     /**
@@ -204,17 +219,24 @@ function stubRepository (imposterId, dbClient) {
      * @returns {Object} - the promise
      */
     async function overwriteAtIndex (stub, index) {
-        console.trace('STUB overwriteAtIndex. NOT_IMPLEMENTED_YET', stub, index);
+        console.trace('STUB overwriteAtIndex', stub, index);
 
         await deleteAtIndex(index);
         await insertAtIndex(stub, index);
     }
 
     async function loadResponses (stub) {
-        console.trace('STUB loadResponses. NOT_IMPLEMENTED_YET', stub);
-        // const meta = await readFile(metaPath(stub.meta.dir));
-        // return Promise.all(meta.responseFiles.map(responseFile =>
-        //     readFile(responsePath(stub.meta.dir, responseFile))));
+        console.trace('STUB loadResponses', stub);
+        const meta = await dbClient.getMeta(imposterId, stub.meta.id);
+        if (!meta || !meta.responseIds) {
+            return [];
+        }
+
+        const responsePromises = meta.responseIds.map(id => dbClient.getResponse(id));
+        const res = await Promise.all(responsePromises);
+        console.log('RES=',JSON.stringify(res));
+        return res;
+        // return await dbClient.getResponses(imposterId, stub.meta.id);
     }
 
     async function loadMatches (stub) {
@@ -237,7 +259,7 @@ function stubRepository (imposterId, dbClient) {
             if (options.debug) {
                 console.log('Can\'t find imposter with id ', imposterId);
             }
-            return Promise.response({});
+            return [];
         }
 
         if (!Array.isArray(imposter.stubs)) {
@@ -255,6 +277,7 @@ function stubRepository (imposterId, dbClient) {
             if (options.debug && matches[index].length > 0) {
                 stub.matches = matches[index];
             }
+            delete stub.meta;
         });
 
         console.log('STUBS: ', imposter.stubs);
@@ -310,7 +333,7 @@ function stubRepository (imposterId, dbClient) {
         const helpers = require('../../util/helpers');
         const recordedRequest = helpers.clone(request);
         recordedRequest.timestamp = new Date().toJSON();
-        return dbClient.addRequest(imposterId, recordedRequest);
+        return await dbClient.addRequest(imposterId, recordedRequest);
     }
 
     /**
@@ -321,7 +344,7 @@ function stubRepository (imposterId, dbClient) {
     async function loadRequests () {
         console.trace('STUB loadRequests');
 
-        return dbClient.getRequests(imposterId);
+        return await dbClient.getRequests(imposterId);
     }
 
     /**
@@ -332,7 +355,7 @@ function stubRepository (imposterId, dbClient) {
     async function deleteSavedRequests () {
         console.trace('STUB deleteSavedRequests');
 
-        return dbClient.deleteRequests(imposterId);
+        return await dbClient.deleteRequests(imposterId);
     }
 
     return {

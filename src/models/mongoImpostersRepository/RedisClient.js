@@ -14,26 +14,43 @@ class RedisClient {
         this.client.on('error', err => console.log('REDIS_CLIENT_ERROR', err));
     }
 
-    async setObject (id, type = 'imposter', obj) {
+    async setObject (type = 'imposter', id, obj) {
         try {
             const client = await this.getClient();
             const json = JSON.stringify(obj);
             return await client.hSet(type, String(id), json);
         }
         catch (e) {
-            console.error('REDIS_SAVE_OBJECT_ERROR', e);
+            console.error('REDIS_SET_OBJECT_ERROR', e);
             return null;
         }
     }
 
-    async getObject (id, type = 'imposter') {
+    async pushToObject (type = 'imposter', id, obj) {
+        try {
+            const client = await this.getClient();
+
+            const itemsString = await client.hGet(type, String(id)) || '[]';
+            const items = JSON.parse(itemsString);
+            items.push(obj);
+            const json = JSON.stringify(items);
+
+            return await client.hSet(type, String(id), json);
+        }
+        catch (e) {
+            console.error('REDIS_PUSH_TO_OBJECT_ERROR', e);
+            return null;
+        }
+    }
+
+    async getObject (type = 'imposter', id) {
         try {
             const client = await this.getClient();
             const json = await client.hGet(type, String(id));
             return JSON.parse(json);
         }
         catch (e) {
-            console.error('REDIS_GET_OBJECT_ERROR', e);
+            console.error('REDIS_GET_OBJECT_ERROR', e, type, id);
             return null;
         }
     }
@@ -50,7 +67,7 @@ class RedisClient {
         }
     }
 
-    async delObject (id, type = 'imposter') {
+    async delObject (type = 'imposter', id) {
         try {
             const client = await this.getClient();
             return await client.hDel(type, String(id));
@@ -64,13 +81,18 @@ class RedisClient {
     async delAllObjects (type = 'imposter') {
         try {
             const client = await this.getClient();
-            const res = client.del(type);
+            const res = await client.del(type);
             return res;
         }
         catch (e) {
             console.error('REDIS_DEL_ALL_OBJECTS_ERROR', e);
             return null;
         }
+    }
+
+    async flushDb () {
+        const client = await this.getClient();
+        return await client.flushDb();
     }
 
     async connectToServer (callback = () => {}) {
@@ -110,7 +132,7 @@ class RedisClient {
         console.trace('CLIENT addImposter');
 
         try {
-            const res = await this.setObject(imposter.port, 'imposter', imposter);
+            const res = await this.setObject('imposter', imposter.port, imposter);
             console.log('return res', res);
             return res;
         }
@@ -124,7 +146,7 @@ class RedisClient {
         console.trace('CLIENT updateImposter', JSON.stringify(imposter));
 
         try {
-            const res = await this.setObject(imposter.port, 'imposter', imposter);
+            const res = await this.setObject('imposter', imposter.port, imposter);
             return res;
         }
         catch (e) {
@@ -152,7 +174,7 @@ class RedisClient {
     async getImposter (id) {
         console.trace('CLIENT getImposter');
         try {
-            const res = await this.getObject(id, 'imposter');
+            const res = await this.getObject('imposter', id);
             console.log('return res', res);
             return res;
         }
@@ -166,7 +188,7 @@ class RedisClient {
         console.trace('CLIENT deleteImposter');
 
         try {
-            const res = await this.delObject(id, 'imposter');
+            const res = await this.delObject('imposter', id);
             console.log('return res', res);
             return res;
         }
@@ -193,10 +215,7 @@ class RedisClient {
         console.trace('CLIENT addRequest');
 
         try {
-            const requests = await this.getObject(imposterId, 'requests') || [];
-            requests.push(request);
-            const res = await this.setObject(imposterId, 'requests', requests);
-            return res;
+            return await this.pushToObject('requests', imposterId, request);
         }
         catch (e) {
             console.error('CLIENT_ERROR addRequest', e);
@@ -208,7 +227,7 @@ class RedisClient {
         console.trace('CLIENT deleteRequests');
 
         try {
-            return await this.delObject(imposterId, 'requests');
+            return await this.delObject('requests', imposterId);
         }
         catch (e) {
             console.error('CLIENT_ERROR deleteRequests', e);
@@ -229,13 +248,87 @@ class RedisClient {
     }
 
     async getRequests (imposterId) {
-        console.trace('CLIENT getRequests');
+        console.trace('CLIENT getRequests', imposterId);
 
         try {
-            return await this.getObject(imposterId, 'requests') || [];
+            return await this.getObject('requests', imposterId) || [];
         }
         catch (e) {
             console.error('CLIENT_ERROR getRequests', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async getResponse (responseId) {
+        console.trace('CLIENT getResponses');
+
+        try {
+            return await this.getObject('responses', responseId);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR getResponses', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async addResponse (responseId, response) {
+        console.trace('CLIENT addResponse');
+
+        try {
+            return await this.setObject('responses', responseId, response);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR addRequest', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async deleteResponse (responseId) {
+        console.trace('CLIENT deleteResponses');
+
+        try {
+            return await this.delObject('responses', responseId);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR deleteResponses', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async deleteAllResponses () {
+        console.trace('CLIENT deleteAllResponses');
+
+        try {
+            return await this.delAllObjects('responses');
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR deleteAllResponses', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async setMeta (imposterId, stubId, meta) {
+        console.trace('CLIENT setMeta');
+
+        try {
+            const res = await this.setObject('meta', [imposterId, stubId].join(':'), meta);
+            return res;
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR setMeta', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async getMeta (imposterId, stubId) {
+        console.trace('CLIENT getMeta');
+
+        try {
+            const res = await this.getObject('meta', [imposterId, stubId].join(':'));
+            return res;
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR getMeta', e);
             return Promise.reject(e);
         }
     }
