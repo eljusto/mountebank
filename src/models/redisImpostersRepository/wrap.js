@@ -48,7 +48,7 @@ function wrap (stub, imposterId, dbClient) {
 
     /**
      * Adds a response to the stub
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} response - the new response
      * @returns {Object} - the promise
      */
@@ -82,7 +82,7 @@ function wrap (stub, imposterId, dbClient) {
 
     /**
      * Returns the next response for the stub, taking into consideration repeat behavior and cycling back the beginning
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @returns {Object} - the promise
      */
     cloned.nextResponse = async () => {
@@ -110,7 +110,7 @@ function wrap (stub, imposterId, dbClient) {
 
     /**
      * Records a match for debugging purposes
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} request - the request
      * @param {Object} response - the response
      * @param {Object} responseConfig - the config that generated the response

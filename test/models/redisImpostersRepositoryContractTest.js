@@ -6,14 +6,14 @@
 
 /* eslint max-nested-callbacks: 0 */
 
-const RedisClient = require('../../src/models/mongoImpostersRepository/RedisClient');
+const RedisClient = require('../../src/models/redisImpostersRepository/RedisClient');
 const dbClient = new RedisClient();
 
 const assert = require('assert'),
     types = [
         {
-            name: 'mongoImpostersRepository',
-            create: require('../../src/models/mongoImpostersRepository/index').create,
+            name: 'redisImpostersRepository',
+            create: require('../../src/models/redisImpostersRepository/index').create,
             beforeEach: () => {},
             afterEach: async () => {
                 await dbClient.flushDb();

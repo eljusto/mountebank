@@ -36,7 +36,7 @@ function create (config, logger) {
      * (which can't be persisted) can be rehydrated to a loaded imposter.
      * This means that any data in the function closures will be held in
      * memory.
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} imposter - the imposter
      */
     function addReference (imposter) {

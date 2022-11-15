@@ -2,7 +2,7 @@
 
 const assert = require('assert'),
     ResponseResolver = require('../../src/models/responseResolver'),
-    repo = require('../../src/models/mongoImpostersRepository/index').create(),
+    repo = require('../../src/models/redisImpostersRepository/index').create(),
     helpers = require('../../src/util/helpers'),
     mock = require('../mock').mock,
     Logger = require('../fakes/fakeLogger'),

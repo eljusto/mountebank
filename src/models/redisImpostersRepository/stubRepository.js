@@ -27,7 +27,7 @@ function stubRepository (imposterId, dbClient) {
     }
     /**
      * Returns the number of stubs for the imposter
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @returns {Object} - the promise
      */
     async function count () {
@@ -46,7 +46,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Returns the first stub whose predicates matches the filter
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Function} filter - the filter function
      * @param {Number} startIndex - the index to to start searching
      * @returns {Object} - the promise
@@ -73,7 +73,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Adds a new stub to imposter
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} stub - the stub to add
      * @returns {Object} - the promise
      */
@@ -128,7 +128,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Inserts a new stub at the given index
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} stub - the stub to add
      * @param {Number} index - the index to insert the new stub at
      * @returns {Object} - the promise
@@ -157,7 +157,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Deletes the stub at the given index
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Number} index - the index of the stub to delete
      * @returns {Object} - the promise
      */
@@ -185,7 +185,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Overwrites all stubs with a new list
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} newStubs - the new list of stubs
      * @returns {Object} - the promise
      */
@@ -213,7 +213,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Overwrites the stub at the given index
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} stub - the new stub
      * @param {Number} index - the index of the stub to overwrite
      * @returns {Object} - the promise
@@ -246,7 +246,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Returns a JSON-convertible representation
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} options - The formatting options
      * @param {Boolean} options.debug - If true, includes debug information
      * @returns {Object} - the promise resolving to the JSON object
@@ -291,7 +291,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Removes the saved proxy responses
-     * @memberOf module:models/filesystemBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @returns {Object} - Promise
      */
     async function deleteSavedProxyResponses () {
@@ -307,7 +307,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Adds a request for the imposter
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @param {Object} request - the request
      * @returns {Object} - the promise
      */
@@ -324,7 +324,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Returns the saved requests for the imposter
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @returns {Object} - the promise resolving to the array of requests
      */
     async function loadRequests () {
@@ -337,7 +337,7 @@ function stubRepository (imposterId, dbClient) {
 
     /**
      * Deletes the requests directory for an imposter
-     * @memberOf module:models/mongoBackedImpostersRepository#
+     * @memberOf module:models/redisImpostersRepository#
      * @returns {Object} - Promise
      */
     async function deleteSavedRequests () {
