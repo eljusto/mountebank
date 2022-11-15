@@ -132,7 +132,10 @@ function wrap (stub, imposterId, dbClient) {
             processingTime
         };
 
+
         cloned.matches.push(match);
+
+        await dbClient.addMatch(stubId, match);
 
         console.log(match);
 

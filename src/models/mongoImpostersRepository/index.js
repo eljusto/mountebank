@@ -2,27 +2,30 @@
 
 const RedisClient = require('./RedisClient');
 
-const stubRepository = require('./stubRepository');
+const stubsRepository = require('./stubRepository');
 
-function wrapImposter (imposter, index = 0) {
-    console.trace('MODEL: wrapImposter', imposter);
-    const toJSON = () => {
-        console.warn('object ToJSON', index);
-        return imposter;
-    };
+const imposterToJSON = require('./imposterToJSON');
 
-    // if (!Array.isArray(imposter.creationRequest.stubs)) {
-    //     imposter.creationRequest.stubs = [];
-    // }
-
-    return {
-        ...imposter,
-        toJSON
-    };
-}
 
 function create (config, logger) {
-    console.warn('!! REPO create', config);
+    const wrapImposter = (imposter) => {
+        console.trace('MODEL: wrapImposter', imposter);
+        const repo = createStubsRepository(imposter.port);
+        // options => printer.toJSON(numberOfRequests, options);
+
+        // if (!Array.isArray(imposter.creationRequest.stubs)) {
+        //     imposter.creationRequest.stubs = [];
+        // }
+
+        return {
+            ...imposter,
+            toJSON: (options = {}) => imposterToJSON(imposter, options, repo),
+            resetRequests: async () => {
+                await repo.deleteSavedRequests();
+            }
+        };
+    };
+    console.trace('!! REPO create', config);
 
     const imposterFns = {};
 
@@ -63,7 +66,7 @@ function create (config, logger) {
             const savedImposter = await dbClient.addImposter(imposterConfig);
             addReference(imposter);
 
-            const repo = stubsFor(imposter.port, dbClient);
+            const repo = await stubsFor(imposter.port, dbClient);
             await repo.overwriteAll(stubs);
             console.log('return savedImposter', savedImposter);
             return imposter;
@@ -84,7 +87,8 @@ function create (config, logger) {
             }
             console.log('return item', imposter);
             imposter.stubs = await stubsFor(id).toJSON();
-            return wrapImposter(imposter);
+            const repo = this.createStubsRepository(id);
+            return wrapImposter(imposter, repo);
         }
         catch (e) {
             console.error('GET_STUB_ERROR', e);
@@ -138,6 +142,16 @@ function create (config, logger) {
                 return null;
             }
             await shutdown(id);
+
+            for (let i = 0; i < imposter.stubs.length; i += 1) {
+                const stub = imposter.stubs[i];
+                console.log('!!! stub', stub);
+                if (stub.meta) {
+                    await dbClient.deleteMatches(stub.meta.id);
+                    await dbClient.delMeta(id, stub.meta.id);
+                }
+            }
+
             await dbClient.deleteImposter(id);
             return imposter;
         }
@@ -155,6 +169,10 @@ function create (config, logger) {
         await Promise.all(Object.keys(imposterFns).map(shutdown));
 
         const allImposters = await dbClient.getAllImposters(wrapImposter);
+
+        await dbClient.deleteAllRequests();
+        await dbClient.deleteAllMatches();
+        await dbClient.deleteAllMeta();
         await dbClient.deleteAllImposters();
         return allImposters;
     }
@@ -208,13 +226,18 @@ function create (config, logger) {
 
     function stubsFor (id) {
         console.trace('MODEL: StubsFor', id);
-        return stubRepository(id, dbClient);
+        return createStubsRepository(id);
         // return { id };
+    }
+
+    function createStubsRepository (id) {
+        return stubsRepository(id, dbClient);
     }
 
     return {
         add,
         all,
+        createStubsRepository,
         del,
         deleteAll,
         exists,

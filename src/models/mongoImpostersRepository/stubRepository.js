@@ -234,14 +234,14 @@ function stubRepository (imposterId, dbClient) {
 
         const responsePromises = meta.responseIds.map(id => dbClient.getResponse(id));
         const res = await Promise.all(responsePromises);
-        console.log('RES=',JSON.stringify(res));
+        console.log('RES=', JSON.stringify(res));
         return res;
         // return await dbClient.getResponses(imposterId, stub.meta.id);
     }
 
     async function loadMatches (stub) {
-        console.trace('STUB loadMatches. NOT_IMPLEMENTED_YET', stub);
-        return stub.matches || [];
+        console.trace('STUB loadMatches');
+        return await dbClient.getMatches(stub.meta.id) || [];
     }
 
     /**
@@ -317,7 +317,9 @@ function stubRepository (imposterId, dbClient) {
         const helpers = require('../../util/helpers');
         const recordedRequest = helpers.clone(request);
         recordedRequest.timestamp = new Date().toJSON();
-        return await dbClient.addRequest(imposterId, recordedRequest);
+        const res = await dbClient.addRequest(imposterId, recordedRequest);
+        console.log('addRequest ', res);
+        return res;
     }
 
     /**
@@ -328,7 +330,9 @@ function stubRepository (imposterId, dbClient) {
     async function loadRequests () {
         console.trace('STUB loadRequests');
 
-        return await dbClient.getRequests(imposterId);
+        const res = await dbClient.getRequests(imposterId);
+        console.log('loadedRequests', res);
+        return res;
     }
 
     /**

@@ -83,9 +83,10 @@ types.forEach(function (type) {
                 assert.deepEqual(deimposterize(imposter), { port: 1, value: 2, stubs: [] });
             });
 
-            it.skip('should save functions on imposter', async function () {
+            it('should properly save imposter with functions and omit it', async function () {
                 const imposter = {
                     port: 1,
+                    value: 2,
                     truthy: () => true,
                     falsy: () => false
                 };
@@ -93,8 +94,15 @@ types.forEach(function (type) {
                 await repo.add(imposterize(imposter));
                 const saved = await repo.get('1');
 
-                assert.ok(saved.truthy());
-                assert.ok(!saved.falsy());
+                assert.deepEqual(saved, {
+                    creationRequest: {
+                        stubs: []
+                    },
+                    port: 1,
+                    value: 2,
+                    stubs: [],
+                    toJSON: saved.toJSON
+                });
             });
         });
 
@@ -212,15 +220,6 @@ types.forEach(function (type) {
                 assert.strictEqual(saved, null);
             });
 
-            it.skip('should call stop() on the imposter', async function () {
-                const imposter = { port: 1, value: 2, stop: mock().returns(Promise.resolve()) };
-
-                await repo.add(imposterize(imposter));
-                await repo.del(1);
-
-                assert.ok(imposter.stop.wasCalled(), imposter.stop.message());
-            });
-
             it('should empty the stubs associated with the imposter', async function () {
                 const stub = { responses: [{ is: { key: 'value' } }] },
                     imposter = { port: 1, stubs: [stub], stop: mock().returns(Promise.resolve()) };
@@ -235,23 +234,16 @@ types.forEach(function (type) {
         describe('#stopAllSync', function () {
             it('should empty list', async function () {
                 const first = { port: 1, value: 2 };
-                // , stop: mock().returns(Promise.resolve()) },
-                const second = { port: 2, value: 3/* , stop: mock().returns(Promise.resolve()) */ };
+                const second = { port: 2, value: 3 };
 
                 await repo.add(imposterize(first));
                 await repo.add(imposterize(second));
                 repo.stopAllSync();
 
-                // assert.ok(first.stop.wasCalled(), first.stop.message());
-                // assert.ok(second.stop.wasCalled(), second.stop.message());
                 const imposters = await repo.all();
                 assert.deepEqual(imposters, []);
             });
         });
-
-        // TODO Add test for imposters with functions
-        // const first = { port: 1, value: 2, /* stop: mock().returns(Promise },
-        //     second = { port: 2, value: 3, /* stop: mock().returns(Promise.resolve())  */};
 
         describe('#deleteAll', function () {
             it('should call stop() on all imposters and empty list', async function () {

@@ -202,6 +202,9 @@ class RedisClient {
         console.trace('CLIENT deleteAllImposters');
 
         try {
+            await this.delAllObjects('meta');
+            await this.delAllObjects('responses');
+            await this.delAllObjects('matches');
             const res = await this.delAllObjects('imposter');
             return res;
         }
@@ -307,6 +310,19 @@ class RedisClient {
         }
     }
 
+    async delMeta (imposterId, stubId) {
+        console.trace('CLIENT delMeta');
+
+        try {
+            const res = await this.delObject('meta', [imposterId, stubId].join(':'));
+            return res;
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR delMeta', e);
+            return Promise.reject(e);
+        }
+    }
+
     async setMeta (imposterId, stubId, meta) {
         console.trace('CLIENT setMeta');
 
@@ -329,6 +345,66 @@ class RedisClient {
         }
         catch (e) {
             console.error('CLIENT_ERROR getMeta', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async deleteAllMeta () {
+        console.trace('CLIENT deleteAllMeta');
+
+        try {
+            return await this.delAllObjects('meta');
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR deleteAllMeta', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async addMatch (stubId, match) {
+        console.trace('CLIENT addMatch', stubId);
+
+        try {
+            return await this.pushToObject('matches', stubId, match);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR addMatch', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async getMatches (stubId) {
+        console.trace('CLIENT getMatches');
+
+        try {
+            return await this.getObject('matches', stubId);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR getMatches', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async deleteMatches (stubId) {
+        console.trace('CLIENT deleteMatches');
+
+        try {
+            return await this.delObject('match', stubId);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR deleteMatches', e);
+            return Promise.reject(e);
+        }
+    }
+
+    async deleteAllMatches () {
+        console.trace('CLIENT deleteAllMatches');
+
+        try {
+            return await this.delAllObjects('match');
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR deleteAllMatches', e);
             return Promise.reject(e);
         }
     }
