@@ -1,6 +1,6 @@
 'use strict';
 
-function createHeader (imposter, options) {
+async function createHeader (imposter, options, repo) {
     const result = {
         protocol: imposter.protocol,
         port: imposter.port
@@ -12,10 +12,11 @@ function createHeader (imposter, options) {
     if (imposter.defaultResponse) {
         result.defaultResponse = imposter.defaultResponse;
     }
+
     // FIXME: add numberOfRequests
-    // if (!options.replayable) {
-    //     result.numberOfRequests = numberOfRequests;
-    // }
+    if (!options.replayable) {
+        result.numberOfRequests = await repo.getNumberOfRequests();
+    }
     if (!options.list) {
         result.recordRequests = Boolean(imposter.recordRequests);
 
@@ -93,7 +94,7 @@ async function toJSON (imposter, options, repo) {
     // but it makes a nicer user experience for developers viewing the JSON to keep the most
     // relevant information at the top. Some of the order of operations in this file represents
     // that (e.g. keeping the _links at the end), and is tested with some documentation tests.
-    const result = createHeader(imposter, options);
+    const result = await createHeader(imposter, options, repo);
 
     options = options || {};
 

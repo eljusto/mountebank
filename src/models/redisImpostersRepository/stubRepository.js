@@ -2,51 +2,31 @@
 
 const wrap = require('./wrap');
 
-function setStubs (imposter, stubs) {
-    return {
-        ...imposter,
-        stubs,
-        creationRequest: {
-            ...imposter.creationRequest,
-            stubs
-        }
-    };
-}
+// function setStubs (imposter, stubs) {
+//     return {
+//         ...imposter,
+//         stubs,
+//         creationRequest: {
+//             ...imposter.creationRequest,
+//             stubs
+//         }
+//     };
+// }
 
-function repeatsFor (response) {
-    return response.repeat || 1;
-}
-
-function stubRepository (imposterId, dbClient) {
-    let counter = 0;
-
-    function generateId (prefix) {
-        const epoch = new Date().valueOf();
-        counter += 1;
-        return `${prefix}-${epoch}-${process.pid}-${counter}`;
-    }
+function stubRepository (imposterId, imposterStorage) {
     /**
      * Returns the number of stubs for the imposter
-     * @memberOf module:models/redisImpostersRepository#
+     * @memberOf module:models/redisBackedImpostersRepository#
      * @returns {Object} - the promise
      */
     async function count () {
-        const imposter = await dbClient.getImposter(imposterId);
-        if (!imposter) {
-            return 0;
-        }
-        if (!Array.isArray(imposter.stubs)) {
-            imposter.stubs = [];
-        }
-
-        console.warn('COUNT ', JSON.stringify(imposter.stubs));
-
-        return imposter.stubs.length;
+        const stubs = await imposterStorage.getStubs(imposterId);
+        return stubs.length;
     }
 
     /**
-     * Returns the first stub whose predicates matches the filter
-     * @memberOf module:models/redisImpostersRepository#
+     * Returns the first stub whose preidicates matches the filter
+     * @memberOf module:models/redisBackedImpostersRepository#
      * @param {Function} filter - the filter function
      * @param {Number} startIndex - the index to to start searching
      * @returns {Object} - the promise
@@ -54,17 +34,11 @@ function stubRepository (imposterId, dbClient) {
     async function first (filter, startIndex = 0) {
         console.trace('STUB:first', filter.toString(), startIndex, imposterId);
 
-        const imposter = await dbClient.getImposter(imposterId);
-        console.log('imposter', imposter);
-        if (imposter) {
-            if (!Array.isArray(imposter.stubs)) {
-                imposter.stubs = [];
-            }
-            for (let i = startIndex; i < imposter.stubs.length; i += 1) {
-                if (filter(imposter.stubs[i].predicates || [])) {
-                    console.log('STUB FIRST FILTER TRUE', JSON.stringify(imposter.stubs[i].predicates));
-                    return { success: true, stub: wrap(imposter.stubs[i], imposterId, dbClient) };
-                }
+        const stubs = await imposterStorage.getStubs(imposterId);
+        for (let i = startIndex; i < stubs.length; i += 1) {
+            if (filter(stubs[i].predicates || [])) {
+                console.log('STUB FIRST FILTER TRUE', JSON.stringify(stubs[i].predicates));
+                return { success: true, stub: wrap(stubs[i], imposterId, imposterStorage) };
             }
         }
         console.log('STUB FIRST SUCCESS FALSE');
@@ -79,51 +53,7 @@ function stubRepository (imposterId, dbClient) {
      */
     async function add (stub) { // eslint-disable-line no-shadow
         console.trace('STUB add', stub);
-
-        const imposter = await dbClient.getImposter(imposterId);
-        if (!imposter) {
-            return;
-        }
-
-        const stubDefinition = await saveStubMetaAndResponses(stub);
-
-        console.log('STUB DEF', stubDefinition);
-        if (!Array.isArray(imposter.stubs)) {
-            imposter.stubs = [];
-        }
-
-        const updatedImposter = setStubs(imposter, [...imposter.stubs, stubDefinition]);
-        const resUpdate = await dbClient.updateImposter(updatedImposter);
-        console.log('resUpdate', resUpdate);
-        return resUpdate;
-    }
-
-    async function saveStubMetaAndResponses (stub) {
-        const stubId = generateId('stub');
-        const stubDefinition = {
-            meta: { id: stubId },
-            };
-        const meta = {
-            responseIds: [],
-            orderWithRepeats: [],
-            nextIndex: 0
-        };
-        const responses = stub.responses || [];
-        if (stub.predicates) {
-            stubDefinition.predicates = stub.predicates;
-        }
-        for (let i = 0; i < responses.length; i += 1) {
-            const responseId = generateId('response');
-            meta.responseIds.push(responseId);
-
-            for (let repeats = 0; repeats < repeatsFor(responses[i]); repeats += 1) {
-                meta.orderWithRepeats.push(i);
-            }
-            await dbClient.addResponse(responseId, responses[i]);
-        }
-        await dbClient.setMeta(imposterId, stubId, meta);
-
-        return stubDefinition;
+        return await imposterStorage.addStub(imposterId, stub);
     }
 
     /**
@@ -136,23 +66,7 @@ function stubRepository (imposterId, dbClient) {
     async function insertAtIndex (stub, index) {
         console.trace('STUB insertAtIndex', stub, index);
 
-        const imposter = await dbClient.getImposter(imposterId);
-        if (!imposter) {
-            return;
-        }
-
-        const stubDefinition = await saveStubMetaAndResponses(stub);
-
-        if (!Array.isArray(imposter.stubs)) {
-            imposter.stubs = [];
-        }
-
-        imposter.stubs.splice(index, 0, stubDefinition);
-
-        const updatedImposter = setStubs(imposter, imposter.stubs);
-        const resUpdate = await dbClient.updateImposter(updatedImposter);
-        console.log('resUpdate', resUpdate);
-        return resUpdate;
+        return await imposterStorage.addStub(imposterId, stub, index);
     }
 
     /**
@@ -163,24 +77,8 @@ function stubRepository (imposterId, dbClient) {
      */
     async function deleteAtIndex (index) {
         console.trace('STUB delete', index);
-        const errors = require('../../util/errors');
 
-        const imposter = await dbClient.getImposter(imposterId);
-        if (!imposter) {
-            return;
-        }
-
-        if (!Array.isArray(imposter.stubs)) {
-            imposter.stubs = [];
-        }
-        if (typeof imposter.stubs[index] === 'undefined') {
-            console.warn('no stub at index ', index, ' for imposter ', imposterId);
-            throw errors.MissingResourceError(`no stub at index ${index}`);
-        }
-
-        imposter.stubs.splice(index, 1);
-        const updatedImposter = setStubs(imposter, imposter.stubs);
-        return await dbClient.updateImposter(updatedImposter);
+        await imposterStorage.deleteStubAtIndex(index);
     }
 
     /**
@@ -192,23 +90,7 @@ function stubRepository (imposterId, dbClient) {
     async function overwriteAll (newStubs) {
         console.trace('STUB overwriteAll', newStubs);
 
-        const imposter = await dbClient.getImposter(imposterId);
-        if (!imposter) {
-            return;
-        }
-
-        imposter.stubs = [];
-        if (!imposter.creationRequest) {
-            imposter.creationRequest = {};
-        }
-        imposter.creationRequest.stubs = [];
-        await dbClient.updateImposter(imposter);
-
-        let addSequence = Promise.resolve();
-        newStubs.forEach(stub => {
-            addSequence = addSequence.then(() => add(stub));
-        });
-        return await addSequence;
+        await imposterStorage.overwriteAllStubs(imposterId, newStubs);
     }
 
     /**
@@ -227,12 +109,18 @@ function stubRepository (imposterId, dbClient) {
 
     async function loadResponses (stub) {
         console.trace('STUB loadResponses', stub);
-        const meta = await dbClient.getMeta(imposterId, stub.meta.id);
+        if (!stub) {
+            throw 'GOT NO STUB'
+        }
+        if (!stub.meta?.id) {
+            return [];
+        }
+        const meta = await imposterStorage.getMeta(imposterId, stub.meta.id);
         if (!meta || !meta.responseIds) {
             return [];
         }
 
-        const responsePromises = meta.responseIds.map(id => dbClient.getResponse(id));
+        const responsePromises = meta.responseIds.map(id => imposterStorage.getResponse(id));
         const res = await Promise.all(responsePromises);
         console.log('RES=', JSON.stringify(res));
         return res;
@@ -241,7 +129,10 @@ function stubRepository (imposterId, dbClient) {
 
     async function loadMatches (stub) {
         console.trace('STUB loadMatches');
-        return await dbClient.getMatches(stub.meta.id) || [];
+        if (!stub.meta?.id) {
+            return [];
+        }
+        return await imposterStorage.getMatches(stub.meta.id) || [];
     }
 
     /**
@@ -254,7 +145,7 @@ function stubRepository (imposterId, dbClient) {
     async function toJSON (options = {}) {
         console.trace('STUB toJSON', options);
 
-        const imposter = await dbClient.getImposter(imposterId);
+        const imposter = await imposterStorage.getImposter(imposterId);
         if (!imposter) {
             if (options.debug) {
                 console.log('Can\'t find imposter with id ', imposterId);
@@ -297,11 +188,13 @@ function stubRepository (imposterId, dbClient) {
     async function deleteSavedProxyResponses () {
         console.trace('STUB deleteSavedProxyResponses');
         const allStubs = await toJSON();
+        console.log('ALLSTUBS', JSON.stringify(allStubs));
         allStubs.forEach(stub => {
             stub.responses = stub.responses.filter(response => !isRecordedResponse(response));
         });
 
         const nonProxyStubs = allStubs.filter(stub => stub.responses.length > 0);
+        console.log('NON PROXY STUBS', JSON.stringify(nonProxyStubs));
         return overwriteAll(nonProxyStubs);
     }
 
@@ -317,7 +210,7 @@ function stubRepository (imposterId, dbClient) {
         const helpers = require('../../util/helpers');
         const recordedRequest = helpers.clone(request);
         recordedRequest.timestamp = new Date().toJSON();
-        const res = await dbClient.addRequest(imposterId, recordedRequest);
+        const res = await imposterStorage.addRequest(imposterId, recordedRequest);
         console.log('addRequest ', res);
         return res;
     }
@@ -330,9 +223,17 @@ function stubRepository (imposterId, dbClient) {
     async function loadRequests () {
         console.trace('STUB loadRequests');
 
-        const res = await dbClient.getRequests(imposterId);
+        const res = await imposterStorage.getRequests(imposterId);
         console.log('loadedRequests', res);
         return res;
+    }
+
+    async function getNumberOfRequests () {
+        console.trace('STUB getNumberOfRequests');
+
+        const res = await imposterStorage.getRequestCounter(imposterId);
+        console.log('numberOfRequests', res);
+        return res || 0;
     }
 
     /**
@@ -343,7 +244,7 @@ function stubRepository (imposterId, dbClient) {
     async function deleteSavedRequests () {
         console.trace('STUB deleteSavedRequests');
 
-        return await dbClient.deleteRequests(imposterId);
+        return await imposterStorage.deleteRequests(imposterId);
     }
 
     return {
@@ -358,7 +259,9 @@ function stubRepository (imposterId, dbClient) {
         deleteSavedProxyResponses,
         addRequest,
         loadRequests,
-        deleteSavedRequests
+        deleteSavedRequests,
+        getNumberOfRequests
     };
 }
+
 module.exports = stubRepository;

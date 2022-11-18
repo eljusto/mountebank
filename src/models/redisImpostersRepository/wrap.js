@@ -7,17 +7,14 @@
 //     nextIndex: 0
 // },
 
-function repeatsFor (response) {
-    return response.repeat || 1;
-}
-
-function wrap (stub, imposterId, dbClient) {
+function wrap (stub, imposterId, imposterStorage) {
     console.trace('WRAP wrap', stub);
     const helpers = require('../../util/helpers');
     const cloned = helpers.clone(stub || {});
     const stubId = stub ? stub.meta.id : '-';
 
     if (typeof stub === 'undefined') {
+        console.warn('!!!! RETURN DEFAULT STUB', stub, imposterId);
         return {
             addResponse: () => Promise.resolve(),
             nextResponse: () => Promise.resolve({
@@ -30,13 +27,6 @@ function wrap (stub, imposterId, dbClient) {
 
     delete cloned.meta;
 
-    let counter = 0;
-
-    function generateId (prefix) {
-        const epoch = new Date().valueOf();
-        counter += 1;
-        return `${prefix}-${epoch}-${process.pid}-${counter}`;
-    }
 
     function createResponse (responseConfig) {
         console.trace('WRAP Create response', responseConfig);
@@ -55,23 +45,18 @@ function wrap (stub, imposterId, dbClient) {
     cloned.addResponse = async response => {
         console.trace('WRAP: add response');
 
-        const responseId = generateId('response');
-        const meta = await dbClient.getMeta(imposterId, stubId);
-        const responseIndex = meta.responseIds.length;
-        meta.responseIds.push(responseId);
-        for (let repeats = 0; repeats < repeatsFor(response); repeats += 1) {
-            meta.orderWithRepeats.push(responseIndex);
-        }
-        await dbClient.setMeta(imposterId, stubId, meta);
-        console.log('RESPONSE', JSON.stringify(response));
-        await dbClient.addResponse(responseId, response);
-        return meta;
+        return await imposterStorage.addResponse(imposterId, stubId, response);
     };
 
     async function getStubIndex () {
         console.trace('WRAP: getStubIndex');
+        const imposter = await imposterStorage.getImposter(imposterId);
 
-        const imposter = await dbClient.getImposter(imposterId);
+        if (!imposter.stubs) {
+            console.warn('!!!!! SOMETHING WEIRD. NO STUBS', JSON.stringify(imposter));
+            return 0;
+        }
+
         for (let i = 0; i < imposter.stubs.length; i += 1) {
             if (imposter.stubs[i].meta.id === stub.meta.id) {
                 return i;
@@ -88,16 +73,22 @@ function wrap (stub, imposterId, dbClient) {
     cloned.nextResponse = async () => {
         console.trace('WRAP nextResponse', stub);
         let responseId;
-        const meta = await dbClient.getMeta(imposterId, stubId);
+        const meta = await imposterStorage.getMeta(imposterId, stubId);
+
+        if (!meta) {
+            throw new Error('!!!NO META FOR STUB');
+        }
+
         const maxIndex = meta.orderWithRepeats.length;
         const responseIndex = meta.orderWithRepeats[meta.nextIndex % maxIndex];
 
         responseId = meta.responseIds[responseIndex];
         meta.nextIndex = (meta.nextIndex + 1) % maxIndex;
 
-        await dbClient.setMeta(imposterId, stubId, meta);
+        await imposterStorage.setMeta(imposterId, stubId, meta);
+        await imposterStorage.incrementRequestCounter(imposterId);
 
-        const responseConfig = await dbClient.getResponse(responseId);
+        const responseConfig = await imposterStorage.getResponse(responseId);
         console.log('responseConfig=', responseConfig);
 
         if (responseConfig) {
@@ -135,7 +126,7 @@ function wrap (stub, imposterId, dbClient) {
 
         cloned.matches.push(match);
 
-        await dbClient.addMatch(stubId, match);
+        await imposterStorage.addMatch(stubId, match);
 
         console.log(match);
 
