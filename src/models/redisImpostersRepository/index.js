@@ -24,6 +24,8 @@ function create (config, logger) {
     // };
     console.trace('!! REPO create', config);
 
+    let appProtocols;
+
     const imposterFns = {};
 
     const imposterStorage = new ImposterStorage();
@@ -283,6 +285,46 @@ function create (config, logger) {
         }
     }
 
+    function onImposterChange (imposterId) {
+        console.log('onImposterChange', imposterId);
+        const imposter = imposterFns[imposterId];
+
+        if (imposter) {
+            shutdown(imposterId).then(() => {
+                imposterStorage.getImposter(imposterId).then(imposterConfig => {
+                    loadImposter(imposterConfig, appProtocols)
+                    .then(_ => console.log('IT WORKS', _));
+                });
+            });
+        } else {
+                imposterStorage.getImposter(imposterId).then(imposterConfig => {
+                    loadImposter(imposterConfig, appProtocols)
+                    .then(_ => console.log('IT WORKS', _));
+                });
+        }
+    }
+
+    function onImposterDelete (imposterId) {
+        console.log('onImposterDelete', imposterId);
+        const imposter = imposterFns[imposterId];
+
+        if (imposter) {
+            shutdown(imposterId).then(() => {
+                console.log(`Imposter ${ imposterId } stopped`);
+            });
+        }
+    }
+
+    function onAllImpostersDelete () {
+        const ids = Object.keys(imposterFns);
+        console.log('ids to stop: ', ids);
+
+        Promise.all(Object.keys(imposterFns).map(shutdown))
+        .then(() => {
+            console.log('All imposters have stopped');
+        });
+    }
+
     /**
      * Loads all saved imposters at startup
      * @memberOf module:models/redisBackedImpostersRepository#
@@ -292,12 +334,17 @@ function create (config, logger) {
     async function loadAll (protocols) {
         console.trace('MODEL:LoadAll');
 
+        appProtocols = protocols;
+
         try {
             await imposterStorage.start();
             console.warn('Connection done...');
             const allImposters = await imposterStorage.getAllImposters();
             const promises = allImposters.map(async imposter => loadImposter(imposter, protocols));
             await Promise.all(promises);
+            await imposterStorage.subscribe(ImposterStorage.CHANNELS.imposter_change, onImposterChange);
+            await imposterStorage.subscribe(ImposterStorage.CHANNELS.imposter_delete, onImposterDelete);
+            await imposterStorage.subscribe(ImposterStorage.CHANNELS.all_imposters_delete, onAllImpostersDelete);
         }
         catch (e) {
             logger.error(e);
@@ -308,7 +355,6 @@ function create (config, logger) {
     function stubsFor (id) {
         console.trace('MODEL: StubsFor', id);
         return createStubsRepository(id);
-        // return { id };
     }
 
     function createStubsRepository (id) {

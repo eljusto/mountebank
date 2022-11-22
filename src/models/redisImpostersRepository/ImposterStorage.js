@@ -2,7 +2,15 @@
 
 const RedisClient = require('./RedisClient');
 
+const CHANNELS = {
+    imposter_change: 'imposter_change',
+    imposter_delete: 'imposter_delete',
+    all_imposters_delete: 'all_imposters_delete',
+
+};
+
 class ImposterStorage {
+
     constructor (options = {}) {
         this.dbClient = new RedisClient(options);
         this.idCounter = 0;
@@ -36,11 +44,22 @@ class ImposterStorage {
         }
     }
 
+    async subscribe (channel, callbackFn) {
+        try {
+            return await this.dbClient.subscribe(channel, callbackFn);
+        }
+        catch (e) {
+            console.error('CLIENT_ERROR subscribe', e);
+        }
+    }
+
     async updateImposter (imposter) {
         console.trace('CLIENT updateImposter', JSON.stringify(imposter));
 
         try {
             const res = await this.dbClient.setObject('imposter', imposter.port, imposter);
+
+            this.dbClient.publish(CHANNELS.imposter_change, imposter.port);
             return res;
         }
         catch (e) {
@@ -79,6 +98,7 @@ class ImposterStorage {
 
         try {
             const res = await this.dbClient.delObject('imposter', id);
+            this.dbClient.publish(CHANNELS.imposter_delete, id);
             // TODO:
             // await this.dbClient.delAllObjects('meta');
             // await this.dbClient.delAllObjects('responses');
@@ -107,6 +127,8 @@ class ImposterStorage {
         try {
             const res = await this.dbClient.delAllObjects('imposter');
             await this.dbClient.flushDb();
+            this.dbClient.publish(CHANNELS.all_imposters_delete);
+
             return res;
         }
         catch (e) {
@@ -462,5 +484,7 @@ class ImposterStorage {
         return stubDefinition;
     }
 }
+
+ImposterStorage.CHANNELS = CHANNELS;
 
 module.exports = ImposterStorage;

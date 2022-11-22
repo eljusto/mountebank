@@ -129,6 +129,43 @@ class RedisClient {
         }
     }
 
+    async publish (channel, message) {
+        try {
+            const client = await this.getClient();
+            const res = await client.publish(channel, message);
+            return res;
+        }
+        catch (e) {
+            console.error('REDIS_PUBLISH_ERROR', e);
+            return null;
+        }
+    }
+
+    async subscribe (channel, callbackFn, isBuffer) {
+        try {
+            const client = await this.getPubSubClient();
+            console.log('subscribe client', client);
+            return client.subscribe(channel, callbackFn);
+            // return await client.connect();
+        }
+        catch (e) {
+            console.error('REDIS_SUBSCRIBE_ERROR', e);
+            return null;
+        }
+    }
+
+    async unsubscribe (channel) {
+        try {
+            const client = await this.getPubSubClient();
+            const res = await client.unsubscribe();
+            return res;
+        }
+        catch (e) {
+            console.error('REDIS_UNSUBSCRIBE_ERROR', e);
+            return null;
+        }
+    }
+
     async flushDb () {
         const client = await this.getClient();
         return await client.flushDb();
@@ -154,13 +191,32 @@ class RedisClient {
         return this.client;
     }
 
+    async getPubSubClient () {
+        if (!this.pubSubClient) {
+            const client = await this.getClient();
+            this.pubSubClient = client.duplicate();
+            await this.pubSubClient.connect();
+            return this.pubSubClient;
+        }
+        return Promise.resolve(this.pubSubClient);
+    }
+
     isClosed () {
         return !this.client.isOpen;
     }
 
     async stop () {
-        const client = await this.getClient();
-        return await client.disconnect();
+        try {
+        if (this.client.isOpen) {
+            await this.client.disconnect();
+        }
+        if (this.pubSubClient?.isOpen) {
+            await this.pubSubClient.disconnect();
+        }
+        }
+        catch (e) {
+            console.log('REDIS_STOP_ERROR', e);
+        }
     }
 }
 
