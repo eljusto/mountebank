@@ -78,7 +78,7 @@ function stubRepository (imposterId, imposterStorage) {
     async function deleteAtIndex (index) {
         console.trace('STUB delete', index);
 
-        await imposterStorage.deleteStubAtIndex(index);
+        await imposterStorage.deleteStubAtIndex(imposterId, index);
     }
 
     /**
