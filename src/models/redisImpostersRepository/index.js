@@ -1,34 +1,28 @@
 'use strict';
 
+const fs = require('fs');
+
 const ImposterStorage = require('./ImposterStorage');
 
 const stubsRepository = require('./stubRepository');
 
 function create (config, logger) {
-    // const wrapImposter = (imposter) => {
-    //     console.trace('MODEL: wrapImposter', imposter);
-    //     const repo = createStubsRepository(imposter.port);
-    //     // options => printer.toJSON(numberOfRequests, options);
-    //
-    //     // if (!Array.isArray(imposter.creationRequest.stubs)) {
-    //     //     imposter.creationRequest.stubs = [];
-    //     // }
-    //
-    //     return {
-    //         ...imposter,
-    //         toJSON: (options = {}) => imposterToJSON(imposter, options, repo),
-    //         resetRequests: async () => {
-    //             await repo.deleteSavedRequests();
-    //         }
-    //     };
-    // };
-    console.trace('!! REPO create', config);
+    logger.info('!! REPO create', config);
 
     let appProtocols;
 
     const imposterFns = {};
+    let repoConfig = {};
+    if (config.impostersRepositoryConfig) {
+        try {
+            repoConfig = JSON.parse(fs.readFileSync(config.impostersRepositoryConfig));
+        }
+        catch (e) {
+            logger.error(`Can't read impostersRepositoryConfig from ${ config.impostersRepositoryConfig }.`, e);
+        }
+    }
 
-    const imposterStorage = new ImposterStorage();
+    const imposterStorage = new ImposterStorage(repoConfig.redisOptions);
 
     /**
      * Saves a reference to the imposter so that the functions
@@ -39,7 +33,7 @@ function create (config, logger) {
      * @param {Object} imposter - the imposter
      */
     function addReference (imposter) {
-        console.trace('imposter');
+        console.trace('addReference');
         const id = String(imposter.port);
         imposterFns[id] = {};
         Object.keys(imposter).forEach(key => {
@@ -94,7 +88,7 @@ function create (config, logger) {
             // return imposter;
         }
         catch (e) {
-            console.error('ADD_STUB_ERROR', e);
+            logger.error('ADD_STUB_ERROR', e);
             return null;
         }
     }
@@ -123,7 +117,7 @@ function create (config, logger) {
             // return wrapImposter(imposter, repo);
         }
         catch (e) {
-            console.error('GET_STUB_ERROR', e);
+            logger.error('GET_STUB_ERROR', e);
             return Promise.reject(e);
         }
     }
@@ -209,7 +203,7 @@ function create (config, logger) {
         //     return imposter;
         }
         catch (e) {
-            console.error('DELETE_STUB_ERROR', e);
+            logger.error('DELETE_STUB_ERROR', e);
             return Promise.reject(e);
         }
     }
@@ -221,8 +215,12 @@ function create (config, logger) {
     async function stopAll () {
         console.trace('MODEL:stopAll');
 
-        await Promise.all(Object.keys(imposterFns).map(shutdown));
-        return await imposterStorage.stop();
+        try {
+            await Promise.all(Object.keys(imposterFns).map(shutdown));
+            return await imposterStorage.stop();
+        } catch (e) {
+            logger.error('STOP_ALL_ERROR', e);
+        }
     }
 
     /**
@@ -239,7 +237,7 @@ function create (config, logger) {
             return await imposterStorage.stop();
         }
         catch (e) {
-            console.error('MODEL_ StopAll ERROR');
+            logger.error('MODEL_ StopAll ERROR');
         }
     }
 
@@ -254,9 +252,13 @@ function create (config, logger) {
         const ids = Object.keys(imposterFns);
         console.log('ids to stop: ', ids);
 
-        await Promise.all(Object.keys(imposterFns).map(shutdown));
-        await imposterStorage.deleteAllImposters();
-
+        try {
+            await Promise.all(Object.keys(imposterFns).map(shutdown));
+            await imposterStorage.deleteAllImposters();
+        }
+        catch (e) {
+            logger.error('DELETE_ALL_ERROR', e);
+        }
 
         // const allImposters = await dbClient.getAllImposters(wrapImposter);
         //
@@ -338,7 +340,7 @@ function create (config, logger) {
 
         try {
             await imposterStorage.start();
-            console.warn('Connection done...');
+            logger.info('Connection done...');
             const allImposters = await imposterStorage.getAllImposters();
             const promises = allImposters.map(async imposter => loadImposter(imposter, protocols));
             await Promise.all(promises);

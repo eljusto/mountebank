@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 const RedisClient = require('./RedisClient');
 
 const CHANNELS = {
@@ -9,10 +11,20 @@ const CHANNELS = {
 
 };
 
+function wrapCallbackFn (clientId, callbackFn) {
+    return (data) => {
+        if (data._clientId !== clientId) {
+            callbackFn(data.payload);
+        }
+    };
+}
+
 class ImposterStorage {
 
     constructor (options = {}) {
+        console.log('OPTIONS', options)
         this.dbClient = new RedisClient(options);
+        this.clientId = crypto.randomBytes(16).toString('base64');
         this.idCounter = 0;
     }
 
@@ -35,6 +47,7 @@ class ImposterStorage {
 
         try {
             const res = await this.dbClient.setObject('imposter', imposter.port, imposter);
+            this.dbClient.publish(CHANNELS.imposter_change, imposter.port);
             console.log('return res', res);
             return res;
         }
@@ -43,6 +56,7 @@ class ImposterStorage {
             return null;
         }
     }
+
 
     async subscribe (channel, callbackFn) {
         try {

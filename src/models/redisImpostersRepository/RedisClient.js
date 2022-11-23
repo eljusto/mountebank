@@ -1,12 +1,29 @@
 'use strict';
 
+const crypto = require('crypto');
 const { createClient } = require('redis');
 
 const OPTIONS = {};
 
+function wrapCallbackFn (clientId, callbackFn) {
+    return (message) => {
+        try {
+            const data = JSON.parse(message);
+
+            if (data._clientId !== clientId) {
+                callbackFn(data.payload);
+            }
+        }
+        catch (e) {
+            console.error('REDIS_MESSAGE_CALLBACK_ERROR', e);
+        }
+    };
+}
+
 class RedisClient {
     constructor (options = {}) {
         this.client = createClient({ ...OPTIONS, ...options });
+        this.clientId = crypto.randomBytes(16).toString('base64');
 
         this.client.on('error', err => console.log('REDIS_CLIENT_ERROR', err));
     }
@@ -129,23 +146,27 @@ class RedisClient {
         }
     }
 
-    async publish (channel, message) {
+    async publish (channel, payload) {
         try {
             const client = await this.getClient();
-            const res = await client.publish(channel, message);
+            const data = {
+                _clientId: this.clientId,
+                payload
+            };
+            const res = await client.publish(channel, JSON.stringify(data));
             return res;
         }
         catch (e) {
-            console.error('REDIS_PUBLISH_ERROR', e);
+            console.error('REDIS_PUBLISH_ERROR', e, channel, payload);
             return null;
         }
     }
 
-    async subscribe (channel, callbackFn, isBuffer) {
+    async subscribe (channel, callbackFn) {
         try {
             const client = await this.getPubSubClient();
             console.log('subscribe client', client);
-            return client.subscribe(channel, callbackFn);
+            return client.subscribe(channel, wrapCallbackFn(this.clientId, callbackFn));
             // return await client.connect();
         }
         catch (e) {
@@ -157,7 +178,7 @@ class RedisClient {
     async unsubscribe (channel) {
         try {
             const client = await this.getPubSubClient();
-            const res = await client.unsubscribe();
+            const res = await client.unsubscribe(channel);
             return res;
         }
         catch (e) {
@@ -207,12 +228,12 @@ class RedisClient {
 
     async stop () {
         try {
-        if (this.client.isOpen) {
-            await this.client.disconnect();
-        }
-        if (this.pubSubClient?.isOpen) {
-            await this.pubSubClient.disconnect();
-        }
+            if (this.client.isOpen) {
+                await this.client.disconnect();
+            }
+            if (this.pubSubClient?.isOpen) {
+                await this.pubSubClient.disconnect();
+            }
         }
         catch (e) {
             console.log('REDIS_STOP_ERROR', e);
