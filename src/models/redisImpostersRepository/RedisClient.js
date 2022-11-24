@@ -6,7 +6,7 @@ const { createClient } = require('redis');
 const OPTIONS = {};
 
 function wrapCallbackFn (clientId, callbackFn) {
-    return (message) => {
+    return message => {
         try {
             const data = JSON.parse(message);
 
@@ -15,35 +15,33 @@ function wrapCallbackFn (clientId, callbackFn) {
             }
         }
         catch (e) {
-            console.error('REDIS_MESSAGE_CALLBACK_ERROR', e);
+            this.logger.error('REDIS_MESSAGE_CALLBACK_ERROR', e);
         }
     };
 }
 
 class RedisClient {
-    constructor (options = {}) {
+    constructor (options = {}, logger) {
         this.client = createClient({ ...OPTIONS, ...options });
         this.clientId = crypto.randomBytes(16).toString('base64');
+        this.logger = logger;
 
-        this.client.on('error', err => console.log('REDIS_CLIENT_ERROR', err));
+        this.client.on('error', err => this.logger.log('REDIS_CLIENT_ERROR', err));
     }
 
     async setObject (type, id, obj) {
-        console.trace('setObject', type, id);
-
         try {
             const client = await this.getClient();
             const json = JSON.stringify(obj);
             return await client.hSet(type, String(id), json);
         }
         catch (e) {
-            console.error('REDIS_SET_OBJECT_ERROR', e);
+            this.logger.error('REDIS_SET_OBJECT_ERROR', e);
             return null;
         }
     }
 
     async pushToObject (type, id, obj) {
-        console.trace('pushToObject', type, id);
         try {
             const client = await this.getClient();
 
@@ -55,7 +53,7 @@ class RedisClient {
             return await client.hSet(type, String(id), json);
         }
         catch (e) {
-            console.error('REDIS_PUSH_TO_OBJECT_ERROR', e);
+            this.logger.error('REDIS_PUSH_TO_OBJECT_ERROR', e);
             return null;
         }
     }
@@ -67,7 +65,7 @@ class RedisClient {
             return JSON.parse(json);
         }
         catch (e) {
-            console.error('REDIS_GET_OBJECT_ERROR', e, type, id);
+            this.logger.error('REDIS_GET_OBJECT_ERROR', e, type, id);
             return null;
         }
     }
@@ -79,7 +77,7 @@ class RedisClient {
             return list.map(item => JSON.parse(item));
         }
         catch (e) {
-            console.error('REDIS_GET_ALL_OBJECTS_ERROR', e);
+            this.logger.error('REDIS_GET_ALL_OBJECTS_ERROR', e);
             return null;
         }
     }
@@ -90,7 +88,7 @@ class RedisClient {
             return await client.hDel(type, String(id));
         }
         catch (e) {
-            console.error('REDIS_DEL_OBJECT_ERROR', e);
+            this.logger.error('REDIS_DEL_OBJECT_ERROR', e);
             return 0;
         }
     }
@@ -102,46 +100,43 @@ class RedisClient {
             return res;
         }
         catch (e) {
-            console.error('REDIS_DEL_ALL_OBJECTS_ERROR', e);
+            this.logger.error('REDIS_DEL_ALL_OBJECTS_ERROR', e);
             return null;
         }
     }
 
     async incrementCounter (type, id) {
-        console.trace('increment counter', type, id);
         try {
             const client = await this.getClient();
             const res = await client.hIncrBy(type, String(id), 1);
             return res;
         }
         catch (e) {
-            console.error('REDIS_INCREMENT_COUNTER_ERROR', e);
+            this.logger.error('REDIS_INCREMENT_COUNTER_ERROR', e);
             return null;
         }
     }
 
     async decrementCounter (type, id) {
-        console.trace('decrement counter', type, id);
         try {
             const client = await this.getClient();
             const res = await client.hIncrBy(type, String(id), -1);
             return res;
         }
         catch (e) {
-            console.error('REDIS_DECREMENT_COUNTER_ERROR', e);
+            this.logger.error('REDIS_DECREMENT_COUNTER_ERROR', e);
             return null;
         }
     }
 
     async resetCounter (type, id) {
-        console.trace('reset counter', type, id);
         try {
             const client = await this.getClient();
             const res = await client.hSet(type, String(id), 0);
             return res;
         }
         catch (e) {
-            console.error('REDIS_RESET_COUNTER_ERROR', e);
+            this.logger.error('REDIS_RESET_COUNTER_ERROR', e);
             return null;
         }
     }
@@ -157,7 +152,7 @@ class RedisClient {
             return res;
         }
         catch (e) {
-            console.error('REDIS_PUBLISH_ERROR', e, channel, payload);
+            this.logger.error('REDIS_PUBLISH_ERROR', e, channel, payload);
             return null;
         }
     }
@@ -165,12 +160,10 @@ class RedisClient {
     async subscribe (channel, callbackFn) {
         try {
             const client = await this.getPubSubClient();
-            console.log('subscribe client', client);
             return client.subscribe(channel, wrapCallbackFn(this.clientId, callbackFn));
-            // return await client.connect();
         }
         catch (e) {
-            console.error('REDIS_SUBSCRIBE_ERROR', e);
+            this.logger.error('REDIS_SUBSCRIBE_ERROR', e);
             return null;
         }
     }
@@ -182,7 +175,7 @@ class RedisClient {
             return res;
         }
         catch (e) {
-            console.error('REDIS_UNSUBSCRIBE_ERROR', e);
+            this.logger.error('REDIS_UNSUBSCRIBE_ERROR', e);
             return null;
         }
     }
@@ -195,12 +188,12 @@ class RedisClient {
     async connectToServer (callback = () => {}) {
         try {
             await this.client.connect();
-            console.log('Successfully connected to Redis db');
+            this.logger.info('Successfully connected to Redis db');
 
             return callback();
         }
         catch (e) {
-            console.log('REDIS_CONNECT_ERROR', e);
+            this.logger.log('REDIS_CONNECT_ERROR', e);
             return callback(e);
         }
     }
@@ -236,7 +229,7 @@ class RedisClient {
             }
         }
         catch (e) {
-            console.log('REDIS_STOP_ERROR', e);
+            this.logger.log('REDIS_STOP_ERROR', e);
         }
     }
 }

@@ -1,19 +1,9 @@
 'use strict';
 
+const clone = require('./clone');
 const wrap = require('./wrap');
 
-// function setStubs (imposter, stubs) {
-//     return {
-//         ...imposter,
-//         stubs,
-//         creationRequest: {
-//             ...imposter.creationRequest,
-//             stubs
-//         }
-//     };
-// }
-
-function stubRepository (imposterId, imposterStorage) {
+function stubRepository (imposterId, imposterStorage, logger) {
     /**
      * Returns the number of stubs for the imposter
      * @memberOf module:models/redisBackedImpostersRepository#
@@ -32,16 +22,20 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     async function first (filter, startIndex = 0) {
-        console.trace('STUB:first', filter.toString(), startIndex, imposterId);
+        let stubs;
+        try {
+            stubs = await imposterStorage.getStubs(imposterId);
+        }
+        catch (e) {
+            logger.error('STUB_FIRST_ERROR', e);
+            stubs = [];
+        }
 
-        const stubs = await imposterStorage.getStubs(imposterId);
         for (let i = startIndex; i < stubs.length; i += 1) {
             if (filter(stubs[i].predicates || [])) {
-                console.log('STUB FIRST FILTER TRUE', JSON.stringify(stubs[i].predicates));
                 return { success: true, stub: wrap(stubs[i], imposterId, imposterStorage) };
             }
         }
-        console.log('STUB FIRST SUCCESS FALSE');
         return { success: false, stub: wrap() };
     }
 
@@ -51,8 +45,7 @@ function stubRepository (imposterId, imposterStorage) {
      * @param {Object} stub - the stub to add
      * @returns {Object} - the promise
      */
-    async function add (stub) { // eslint-disable-line no-shadow
-        console.trace('STUB add', stub);
+    async function add (stub) {
         return await imposterStorage.addStub(imposterId, stub);
     }
 
@@ -64,8 +57,6 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     async function insertAtIndex (stub, index) {
-        console.trace('STUB insertAtIndex', stub, index);
-
         return await imposterStorage.addStub(imposterId, stub, index);
     }
 
@@ -76,8 +67,6 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     async function deleteAtIndex (index) {
-        console.trace('STUB delete', index);
-
         await imposterStorage.deleteStubAtIndex(imposterId, index);
     }
 
@@ -88,8 +77,6 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     async function overwriteAll (newStubs) {
-        console.trace('STUB overwriteAll', newStubs);
-
         await imposterStorage.overwriteAllStubs(imposterId, newStubs);
     }
 
@@ -101,34 +88,39 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     async function overwriteAtIndex (stub, index) {
-        console.trace('STUB overwriteAtIndex', stub, index);
-
-        await deleteAtIndex(index);
-        await insertAtIndex(stub, index);
+        try {
+            await deleteAtIndex(index);
+            await insertAtIndex(stub, index);
+        }
+        catch (e) {
+            logger.error('STUB_OVERWRITE_AT_INDEX_ERROR', e);
+        }
     }
 
     async function loadResponses (stub) {
-        console.trace('STUB loadResponses', stub);
         if (!stub) {
-            throw 'GOT NO STUB'
+            throw new Error('STUB_LOAD_RESPONSES_ERROR, no stub');
         }
         if (!stub.meta?.id) {
             return [];
         }
-        const meta = await imposterStorage.getMeta(imposterId, stub.meta.id);
-        if (!meta || !meta.responseIds) {
+        try {
+            const meta = await imposterStorage.getMeta(imposterId, stub.meta.id);
+            if (!meta || !meta.responseIds) {
+                return [];
+            }
+
+            const responsePromises = meta.responseIds.map(id => imposterStorage.getResponse(id));
+            const res = await Promise.all(responsePromises);
+            return res;
+        }
+        catch (e) {
+            logger.error('STUB_LOAD_RESPONSES_ERROR', e);
             return [];
         }
-
-        const responsePromises = meta.responseIds.map(id => imposterStorage.getResponse(id));
-        const res = await Promise.all(responsePromises);
-        console.log('RES=', JSON.stringify(res));
-        return res;
-        // return await dbClient.getResponses(imposterId, stub.meta.id);
     }
 
     async function loadMatches (stub) {
-        console.trace('STUB loadMatches');
         if (!stub.meta?.id) {
             return [];
         }
@@ -143,12 +135,10 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise resolving to the JSON object
      */
     async function toJSON (options = {}) {
-        console.trace('STUB toJSON', options);
-
         const imposter = await imposterStorage.getImposter(imposterId);
         if (!imposter) {
             if (options.debug) {
-                console.log('Can\'t find imposter with id ', imposterId);
+                logger.warn('Can\'t find imposter with id ', imposterId);
             }
             return [];
         }
@@ -157,26 +147,28 @@ function stubRepository (imposterId, imposterStorage) {
             imposter.stubs = [];
         }
 
-        const responsePromises = imposter.stubs.map(loadResponses);
-        const stubResponses = await Promise.all(responsePromises);
-        const debugPromises = options.debug ? imposter.stubs.map(loadMatches) : [];
-        const matches = await Promise.all(debugPromises);
+        try {
+            const responsePromises = imposter.stubs.map(loadResponses);
+            const stubResponses = await Promise.all(responsePromises);
+            const debugPromises = options.debug ? imposter.stubs.map(loadMatches) : [];
+            const matches = await Promise.all(debugPromises);
 
-        console.log('matches:', matches);
-        imposter.stubs.forEach((stub, index) => {
-            stub.responses = stubResponses[index];
-            if (options.debug && matches[index].length > 0) {
-                stub.matches = matches[index];
-            }
-            delete stub.meta;
-        });
+            imposter.stubs.forEach((stub, index) => {
+                stub.responses = stubResponses[index];
+                if (options.debug && matches[index].length > 0) {
+                    stub.matches = matches[index];
+                }
+                delete stub.meta;
+            });
 
-        console.log('STUBS: ', imposter.stubs);
-        return imposter.stubs;
+            return imposter.stubs;
+        }
+        catch (e) {
+            logger.error('STUB_TO_JSON_ERROR', e);
+        }
     }
 
     function isRecordedResponse (response) {
-        console.trace('STUB isRecordedResponse', response);
         return response.is && typeof response.is._proxyResponseTime === 'number';
     }
 
@@ -186,15 +178,12 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - Promise
      */
     async function deleteSavedProxyResponses () {
-        console.trace('STUB deleteSavedProxyResponses');
         const allStubs = await toJSON();
-        console.log('ALLSTUBS', JSON.stringify(allStubs));
         allStubs.forEach(stub => {
             stub.responses = stub.responses.filter(response => !isRecordedResponse(response));
         });
 
         const nonProxyStubs = allStubs.filter(stub => stub.responses.length > 0);
-        console.log('NON PROXY STUBS', JSON.stringify(nonProxyStubs));
         return overwriteAll(nonProxyStubs);
     }
 
@@ -205,13 +194,9 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     async function addRequest (request) {
-        console.trace('STUB addRequest', request);
-
-        const helpers = require('../../util/helpers');
-        const recordedRequest = helpers.clone(request);
+        const recordedRequest = clone(request);
         recordedRequest.timestamp = new Date().toJSON();
         const res = await imposterStorage.addRequest(imposterId, recordedRequest);
-        console.log('addRequest ', res);
         return res;
     }
 
@@ -221,18 +206,12 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - the promise resolving to the array of requests
      */
     async function loadRequests () {
-        console.trace('STUB loadRequests');
-
         const res = await imposterStorage.getRequests(imposterId);
-        console.log('loadedRequests', res);
         return res;
     }
 
     async function getNumberOfRequests () {
-        console.trace('STUB getNumberOfRequests');
-
         const res = await imposterStorage.getRequestCounter(imposterId);
-        console.log('numberOfRequests', res);
         return res || 0;
     }
 
@@ -242,8 +221,6 @@ function stubRepository (imposterId, imposterStorage) {
      * @returns {Object} - Promise
      */
     async function deleteSavedRequests () {
-        console.trace('STUB deleteSavedRequests');
-
         return await imposterStorage.deleteRequests(imposterId);
     }
 

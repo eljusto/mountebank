@@ -3,12 +3,9 @@
 const fs = require('fs');
 
 const ImposterStorage = require('./ImposterStorage');
-
 const stubsRepository = require('./stubRepository');
 
 function create (config, logger) {
-    logger.info('!! REPO create', config);
-
     let appProtocols;
 
     const imposterFns = {};
@@ -33,7 +30,9 @@ function create (config, logger) {
      * @param {Object} imposter - the imposter
      */
     function addReference (imposter) {
-        console.trace('addReference');
+        if (config.debug) {
+            logger.info('addReference');
+        }
         const id = String(imposter.port);
         imposterFns[id] = {};
         Object.keys(imposter).forEach(key => {
@@ -44,7 +43,9 @@ function create (config, logger) {
     }
 
     function rehydrate (imposter) {
-        console.trace('rehydrate');
+        if (config.debug) {
+            logger.info('rehydrate');
+        }
         const id = String(imposter.port);
         Object.keys(imposterFns[id]).forEach(key => {
             imposter[key] = imposterFns[id][key];
@@ -58,14 +59,7 @@ function create (config, logger) {
      * @returns {Object} - the promise
      */
     async function add (imposter) {
-        console.trace('MODEL:Add', imposter);
         try {
-            // if (await exists(imposter.port)) {
-            //     await del(imposter.port);
-            // }
-
-            console.log('!! MODEL IMPOSTER TOJSON', await imposter.toJSON());
-
             const imposterConfig = imposter.creationRequest;
             const stubs = imposterConfig.stubs || [];
 
@@ -81,11 +75,6 @@ function create (config, logger) {
             addReference(imposter);
 
             return imposter;
-
-            // const repo = await stubsFor(imposter.port, dbClient);
-            // await repo.overwriteAll(stubs);
-            // console.log('return savedImposter', savedImposter);
-            // return imposter;
         }
         catch (e) {
             logger.error('ADD_STUB_ERROR', e);
@@ -100,21 +89,15 @@ function create (config, logger) {
      * @returns {Object} - the promise resolving to the imposter
      */
     async function get (id) {
-        console.trace('MODEL:Get', id);
         try {
             const imposter = await imposterStorage.getImposter(id);
             if (!imposter) {
-                console.log('return null');
                 return null;
             }
             imposter.stubs = await stubsFor(id).toJSON();
             rehydrate(imposter);
 
             return imposter;
-            // console.log('return item', imposter);
-            // imposter.stubs = await stubsFor(id).toJSON();
-            // const repo = this.createStubsRepository(id);
-            // return wrapImposter(imposter, repo);
         }
         catch (e) {
             logger.error('GET_STUB_ERROR', e);
@@ -128,17 +111,15 @@ function create (config, logger) {
      * @returns {Object} - all imposters keyed by port
      */
     async function all () {
-        console.trace('MODEL:All');
         if (imposterStorage.dbClient.isClosed()) {
             return [];
         }
-        return Promise.all(Object.keys(imposterFns).map(get));
-        // const imposters = await dbClient.getAllImposters(wrapImposter);
-        // for (let i = 0; i < imposters.length; i += 1) {
-        //     imposters[i].stubs = await stubsFor(imposters[i].port).toJSON();
-        //     imposters[i] = wrapImposter(imposters[i]);
-        // }
-        // return imposters;
+        try {
+            return Promise.all(Object.keys(imposterFns).map(get));
+        }
+        catch (e) {
+            logger.error('GET_ALL_ERROR', e);
+        }
     }
 
     /**
@@ -148,7 +129,6 @@ function create (config, logger) {
      * @returns {boolean}
      */
     async function exists (id) {
-        console.trace('MODEL:Exists', id);
         return Object.keys(imposterFns).indexOf(String(id)) >= 0;
     }
 
@@ -157,10 +137,15 @@ function create (config, logger) {
             return;
         }
 
-        const stop = imposterFns[String(id)].stop;
-        delete imposterFns[String(id)];
-        if (stop) {
-            await stop();
+        try {
+            const stop = imposterFns[String(id)].stop;
+            delete imposterFns[String(id)];
+            if (stop) {
+                await stop();
+            }
+        }
+        catch (e) {
+            logger.error('SHUTDOWN_ERROR', e);
         }
     }
 
@@ -171,8 +156,6 @@ function create (config, logger) {
      * @returns {Object} - the deletion promise
      */
     async function del (id) {
-        console.trace('MODEL:Del', id);
-
         try {
             const imposter = await get(id);
             const cleanup = [shutdown(id)];
@@ -183,24 +166,6 @@ function create (config, logger) {
 
             await Promise.all(cleanup);
             return imposter;
-        // try {
-        //     const imposter = await this.get(id);
-        //     if (!imposter) {
-        //         return null;
-        //     }
-        //     await shutdown(id);
-        //
-        //     for (let i = 0; i < imposter.stubs.length; i += 1) {
-        //         const stub = imposter.stubs[i];
-        //         console.log('!!! stub', stub);
-        //         if (stub.meta) {
-        //             await dbClient.deleteMatches(stub.meta.id);
-        //             await dbClient.delMeta(id, stub.meta.id);
-        //         }
-        //     }
-        //
-        //     await dbClient.deleteImposter(id);
-        //     return imposter;
         }
         catch (e) {
             logger.error('DELETE_STUB_ERROR', e);
@@ -213,7 +178,6 @@ function create (config, logger) {
      * @memberOf module:models/redisBackedImpostersRepository#
      */
     async function stopAll () {
-        console.trace('MODEL:stopAll');
 
         try {
             await Promise.all(Object.keys(imposterFns).map(shutdown));
@@ -228,16 +192,14 @@ function create (config, logger) {
      * @memberOf module:models/redisBackedImpostersRepository#
      */
     async function stopAllSync () {
-        console.trace('MODEL:stopAllSync');
-
-        await Promise.all(Object.keys(imposterFns).map(shutdown));
-
         try {
-        // FIXME need to make it synchronic
+            await Promise.all(Object.keys(imposterFns).map(shutdown));
+
+            // FIXME need to make it synchronic
             return await imposterStorage.stop();
         }
         catch (e) {
-            logger.error('MODEL_ StopAll ERROR');
+            logger.error('STOP_ALL_SYNC_ERROR', e);
         }
     }
 
@@ -247,10 +209,7 @@ function create (config, logger) {
      * @returns {Object} - the deletion promise
      */
     async function deleteAll () {
-        console.trace('MODEL:DeleteAll');
-
         const ids = Object.keys(imposterFns);
-        console.log('ids to stop: ', ids);
 
         try {
             await Promise.all(Object.keys(imposterFns).map(shutdown));
@@ -259,21 +218,15 @@ function create (config, logger) {
         catch (e) {
             logger.error('DELETE_ALL_ERROR', e);
         }
-
-        // const allImposters = await dbClient.getAllImposters(wrapImposter);
-        //
-        // await dbClient.deleteAllRequests();
-        // await dbClient.deleteAllMatches();
-        // await dbClient.deleteAllMeta();
-        // await dbClient.deleteAllImposters();
-        // return allImposters;
     }
 
     async function loadImposter (imposterConfig, protocols) {
         const protocol = protocols[imposterConfig.protocol];
 
         if (protocol) {
-            logger.info(`Loading ${imposterConfig.protocol}:${imposterConfig.port} from db`);
+            if (config.debug) {
+                logger.info(`Loading ${imposterConfig.protocol}:${imposterConfig.port} from db`);
+            }
             try {
                 const imposter = await protocol.createImposterFrom(imposterConfig);
                 addReference(imposter);
@@ -288,42 +241,48 @@ function create (config, logger) {
     }
 
     function onImposterChange (imposterId) {
-        console.log('onImposterChange', imposterId);
         const imposter = imposterFns[imposterId];
 
         if (imposter) {
             shutdown(imposterId).then(() => {
                 imposterStorage.getImposter(imposterId).then(imposterConfig => {
-                    loadImposter(imposterConfig, appProtocols)
-                    .then(_ => console.log('IT WORKS', _));
+                    loadImposter(imposterConfig, appProtocols).then(() => {
+                        if (config.debug) {
+                            logger.info(`Imposter ${ imposterId } reloaded`);
+                        }
+                    });
                 });
             });
         } else {
-                imposterStorage.getImposter(imposterId).then(imposterConfig => {
-                    loadImposter(imposterConfig, appProtocols)
-                    .then(_ => console.log('IT WORKS', _));
+            imposterStorage.getImposter(imposterId).then(imposterConfig => {
+                loadImposter(imposterConfig, appProtocols).then(() => {
+                    if (config.debug) {
+                        logger.info(`Imposter ${ imposterId } reloaded`);
+                    }
                 });
+
+            });
         }
     }
 
     function onImposterDelete (imposterId) {
-        console.log('onImposterDelete', imposterId);
         const imposter = imposterFns[imposterId];
 
         if (imposter) {
             shutdown(imposterId).then(() => {
-                console.log(`Imposter ${ imposterId } stopped`);
+                if (config.debug) {
+                    logger.info(`Imposter ${ imposterId } stopped`);
+                }
             });
         }
     }
 
     function onAllImpostersDelete () {
         const ids = Object.keys(imposterFns);
-        console.log('ids to stop: ', ids);
-
-        Promise.all(Object.keys(imposterFns).map(shutdown))
-        .then(() => {
-            console.log('All imposters have stopped');
+        Promise.all(Object.keys(imposterFns).map(shutdown)).then(() => {
+            if (options.debug) {
+                logger.info('All imposters have stopped. ids: ', ids);
+            }
         });
     }
 
@@ -334,13 +293,11 @@ function create (config, logger) {
      * @returns {Object} - a promise
      */
     async function loadAll (protocols) {
-        console.trace('MODEL:LoadAll');
-
         appProtocols = protocols;
 
         try {
             await imposterStorage.start();
-            logger.info('Connection done...');
+            logger.info('Connection done. Going to load all imposters');
             const allImposters = await imposterStorage.getAllImposters();
             const promises = allImposters.map(async imposter => loadImposter(imposter, protocols));
             await Promise.all(promises);
@@ -349,24 +306,17 @@ function create (config, logger) {
             await imposterStorage.subscribe(ImposterStorage.CHANNELS.all_imposters_delete, onAllImpostersDelete);
         }
         catch (e) {
-            logger.error(e);
+            logger.error('LOAD_ALL_ERROR', e);
         }
     }
 
-
     function stubsFor (id) {
-        console.trace('MODEL: StubsFor', id);
-        return createStubsRepository(id);
-    }
-
-    function createStubsRepository (id) {
-        return stubsRepository(id, imposterStorage);
+        return stubsRepository(id, imposterStorage, logger);
     }
 
     return {
         add,
         all,
-        createStubsRepository,
         del,
         deleteAll,
         exists,
@@ -378,5 +328,4 @@ function create (config, logger) {
     };
 }
 
-/* eslint-enable */
 module.exports = { create };

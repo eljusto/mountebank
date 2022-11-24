@@ -1,20 +1,12 @@
 'use strict';
-// Wrap from inMemory
 
-// meta = {
-//     responseFiles: [],
-//     orderWithRepeats: [],
-//     nextIndex: 0
-// },
+const clone = require('./clone');
 
 function wrap (stub, imposterId, imposterStorage) {
-    console.trace('WRAP wrap', stub);
-    const helpers = require('../../util/helpers');
-    const cloned = helpers.clone(stub || {});
+    const cloned = clone(stub || {});
     const stubId = stub ? stub.meta.id : '-';
 
     if (typeof stub === 'undefined') {
-        console.warn('!!!! RETURN DEFAULT STUB', stub, imposterId);
         return {
             addResponse: () => Promise.resolve(),
             nextResponse: () => Promise.resolve({
@@ -29,8 +21,7 @@ function wrap (stub, imposterId, imposterStorage) {
 
 
     function createResponse (responseConfig) {
-        console.trace('WRAP Create response', responseConfig);
-        const result = helpers.clone(responseConfig || { is: {} });
+        const result = clone(responseConfig || { is: {} });
         result.stubIndex = getStubIndex;
 
         return result;
@@ -43,18 +34,14 @@ function wrap (stub, imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     cloned.addResponse = async response => {
-        console.trace('WRAP: add response');
-
         return await imposterStorage.addResponse(imposterId, stubId, response);
     };
 
     async function getStubIndex () {
-        console.trace('WRAP: getStubIndex');
         const imposter = await imposterStorage.getImposter(imposterId);
 
         if (!imposter.stubs) {
-            console.warn('!!!!! SOMETHING WEIRD. NO STUBS', JSON.stringify(imposter));
-            return 0;
+            throw new Error(`Something weird. Imposter without stubs ${JSON.stringify(imposter)}`);
         }
 
         for (let i = 0; i < imposter.stubs.length; i += 1) {
@@ -71,12 +58,11 @@ function wrap (stub, imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     cloned.nextResponse = async () => {
-        console.trace('WRAP nextResponse', stub);
         let responseId;
         const meta = await imposterStorage.getMeta(imposterId, stubId);
 
         if (!meta) {
-            throw new Error('!!!NO META FOR STUB');
+            throw new Error(`WRAP_NEXT_RESPONSE_ERROR, no meta for stubId ${stubId}`);
         }
 
         const maxIndex = meta.orderWithRepeats.length;
@@ -89,7 +75,6 @@ function wrap (stub, imposterId, imposterStorage) {
         await imposterStorage.incrementRequestCounter(imposterId);
 
         const responseConfig = await imposterStorage.getResponse(responseId);
-        console.log('responseConfig=', responseConfig);
 
         if (responseConfig) {
             return createResponse(responseConfig);
@@ -109,8 +94,6 @@ function wrap (stub, imposterId, imposterStorage) {
      * @returns {Object} - the promise
      */
     cloned.recordMatch = async (request, response, responseConfig, processingTime) => {
-        console.trace('WRAP: Record match');
-
         if (!Array.isArray(cloned.matches)) {
             cloned.matches = [];
         }
@@ -127,9 +110,6 @@ function wrap (stub, imposterId, imposterStorage) {
         cloned.matches.push(match);
 
         await imposterStorage.addMatch(stubId, match);
-
-        console.log(match);
-
     };
 
     return cloned;
